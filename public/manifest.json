@@ -1,0 +1,9 @@
+{
+  "short_name": "GoGetCRM",
+  "name": "GoGetCRM",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0a1f4d",
+  "background_color": "#ffffff",
+  "icons": []
+}

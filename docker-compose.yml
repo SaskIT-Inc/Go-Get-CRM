@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Instance-per-firm: each firm gets its own database, each with a small
+    # connection pool, so the server-wide connection ceiling is raised.
+    command: postgres -c max_connections=200
+    environment:
+      POSTGRES_USER: gogetcrm
+      # Override via a root-level .env (docker compose reads it automatically
+      # for ${...} substitution here) — e.g. `POSTGRES_PASSWORD=<random>` —
+      # before a production deploy. Defaults to the dev password only because
+      # this port is bound to localhost below, not reachable off-host.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gogetcrm}
+      POSTGRES_DB: gogetcrm
+    ports:
+      # Host port 5433 avoids clashing with a native Postgres install on 5432.
+      # Bound to localhost only — this should never be reachable from outside
+      # the host, in dev or production.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gogetcrm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Single container serving both the built React frontend and the FastAPI
+  # API (see Dockerfile) — mirrors the one-Dockerfile setup used by the
+  # sibling crm-backend project.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Baked into the frontend JS bundle at build time (Vite can't read
+        # this at runtime). Set VITE_API_BASE_URL in a root-level .env before
+        # `docker compose up -d --build` for any real deployment — e.g.
+        # https://aeasy.ca — otherwise every visitor's browser tries to call
+        # http://localhost:8070, which only exists on their own machine.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8070}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - backend/.env
+    environment:
+      # Overrides backend/.env's localhost DATABASE_URL with the in-network
+      # service hostname/port (containers talk to postgres:5432, not the
+      # host-mapped 5433 used from outside).
+      DATABASE_URL: postgresql+asyncpg://gogetcrm:${POSTGRES_PASSWORD:-gogetcrm}@postgres:5432/gogetcrm
+    ports:
+      # Bound to localhost only — reverse proxy (nginx) on the same host talks
+      # to 127.0.0.1:8070; the app is never exposed directly to the internet.
+      - "127.0.0.1:8070:8070"
+    volumes:
+      - app_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8070/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: >
+      sh -c "
+        python -m app.migrate &&
+        python -m app.seed &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8070
+      "
+
+volumes:
+  postgres_data:
+  app_uploads:

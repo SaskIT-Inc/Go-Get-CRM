@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* GoGet Brand Colors */
+    --navy: 220 85% 15%;           /* Navy Blue - Primary brand */
+    --navy-light: 220 60% 25%;
+    --navy-dark: 220 90% 10%;
+    
+    --yellow: 45 100% 50%;          /* Yellow - Accent */
+    --yellow-light: 45 100% 60%;
+    --yellow-dark: 45 100% 40%;
+    
+    --red: 0 85% 55%;               /* Red - Alerts/Critical */
+    --red-light: 0 70% 65%;
+    --red-dark: 0 90% 45%;
+
+    /* Base System Colors */
+    --background: 0 0% 100%;        /* White */
+    --foreground: 220 85% 15%;      /* Navy for text */
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 85% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 85% 15%;
+
+    --primary: 220 85% 15%;         /* Navy */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 95%;       /* Light gray */
+    --secondary-foreground: 220 85% 15%;
+
+    --muted: 220 15% 96%;
+    --muted-foreground: 220 20% 40%;
+
+    --accent: 45 100% 50%;          /* Yellow */
+    --accent-foreground: 220 85% 15%;
+
+    --destructive: 0 85% 55%;       /* Red */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 220 85% 15%;
+
+    --radius: 0.5rem;
+
+    /* Custom GoGet Variables */
+    --sidebar-width: 280px;
+    --header-height: 70px;
+  }
+
+  .dark {
+    --background: 220 90% 8%;       /* Dark navy background */
+    --foreground: 0 0% 98%;
+
+    --card: 220 85% 10%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 220 85% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 45 100% 50%;         /* Yellow in dark mode */
+    --primary-foreground: 220 85% 15%;
+
+    --secondary: 220 60% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 220 60% 13%;
+    --muted-foreground: 220 15% 70%;
+
+    --accent: 45 100% 50%;
+    --accent-foreground: 220 85% 15%;
+
+    --destructive: 0 85% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 50% 20%;
+    --input: 220 50% 20%;
+    --ring: 45 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  h1 {
+    @apply font-display;
+  }
+  h2, h3, h4 {
+    @apply font-heading;
+  }
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-muted;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
