@@ -16,6 +16,7 @@ from .routers import (
     google_oauth,
     integrations,
     onedrive_oauth,
+    outlook_oauth,
     provincial_tax,
     public,
 )
@@ -43,6 +44,7 @@ app.include_router(functions.router)
 app.include_router(integrations.router)
 app.include_router(google_oauth.router)
 app.include_router(onedrive_oauth.router)
+app.include_router(outlook_oauth.router)
 app.include_router(public.router)
 app.include_router(generic.router)
 

@@ -14,6 +14,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import MODELS
 from ..models.tenant_models import Firm
+from ..notify import notify_lead_captured
 from ..serialization import build_create
 
 router = APIRouter(prefix="/api/public", tags=["public"])
@@ -200,5 +201,10 @@ async def capture_website_lead(
 
     firm.last_webhook_lead_at = datetime.datetime.now(datetime.timezone.utc)
     await db.commit()
+
+    try:
+        await notify_lead_captured(lead)
+    except Exception as exc:
+        print(f"[website-lead-capture] notify email for lead {lead.id} failed to send: {exc}")
 
     return {"success": True, "lead_id": lead.id}

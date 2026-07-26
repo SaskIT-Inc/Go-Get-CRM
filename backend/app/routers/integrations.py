@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.email import send_email
 from ..adapters.gmail import send_via_gmail
+from ..adapters.outlook_mail import send_via_outlook
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import ConnectedEmailAccount
@@ -18,8 +19,8 @@ async def integration_send_email(
     db: AsyncSession = Depends(get_db),
 ):
     """Mirrors Base44's Core.SendEmail integration. Sends via the caller's
-    own connected Gmail (Settings > Email) if they have one; otherwise falls
-    back to the platform's shared sender, unchanged."""
+    own connected Gmail/Outlook (Settings > Email) if they have one;
+    otherwise falls back to the platform's shared sender, unchanged."""
     cc = body.get("cc")
     if isinstance(cc, str):
         cc = [addr.strip() for addr in cc.split(",") if addr.strip()]
@@ -32,6 +33,16 @@ async def integration_send_email(
     try:
         if account and account.provider == "google":
             await send_via_gmail(
+                account,
+                db,
+                to=body.get("to"),
+                subject=body.get("subject", ""),
+                body=body.get("body", ""),
+                html=bool(body.get("html")),
+                cc=cc or None,
+            )
+        elif account and account.provider == "microsoft":
+            await send_via_outlook(
                 account,
                 db,
                 to=body.get("to"),

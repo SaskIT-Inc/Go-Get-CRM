@@ -36,8 +36,8 @@ async def _get_access_token(account: ConnectedOneDriveAccount, db: AsyncSession)
         response = await client.post(
             MS_TOKEN_URL,
             data={
-                "client_id": settings.onedrive_client_id,
-                "client_secret": settings.onedrive_client_secret,
+                "client_id": settings.microsoft_client_id,
+                "client_secret": settings.microsoft_client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
                 "scope": "Files.ReadWrite offline_access User.Read",

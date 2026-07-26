@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Edit, Check, X, Ban, RotateCcw } from 'lucide-react';
+import { Edit, Check, X, Ban, RotateCcw, Trash2 } from 'lucide-react';
 import { INVITABLE } from '@/lib/permissions';
 import PermissionMatrixEditor from './PermissionMatrixEditor';
 
@@ -17,7 +17,7 @@ const ROLE_COLORS = {
 
 const ROLE_LABEL = (role) => role?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || role;
 
-export default function UserCard({ u, currentUser, onSave }) {
+export default function UserCard({ u, currentUser, onSave, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     full_name: u.full_name || '',
@@ -112,6 +112,25 @@ export default function UserCard({ u, currentUser, onSave }) {
               className="p-1 h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
             >
               {u.is_active ? <Ban className="w-3 h-3" /> : <RotateCcw className="w-3 h-3" />}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Permanently delete ${u.full_name || u.email}? This can't be undone — they will ` +
+                      `immediately lose access, and any of their connected Gmail/Outlook/OneDrive accounts ` +
+                      `will be disconnected. Tasks, filings, notes, and invoices they were attached to are ` +
+                      `unaffected and will keep showing their name/email.`
+                  )
+                ) {
+                  onDelete(u.id);
+                }
+              }}
+              className="p-1 h-7 w-7 text-red-700 hover:text-red-900 hover:bg-red-100"
+            >
+              <Trash2 className="w-3 h-3" />
             </Button>
           </div>
         )}

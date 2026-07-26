@@ -15,12 +15,37 @@ import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .adapters.email import send_email
 from .models import MODELS
 from .modules import STAFF_ROLES, has_permission
 
 User = MODELS["User"]
 Notification = MODELS["Notification"]
 Activity = MODELS["Activity"]
+
+# Every new lead — however it enters the pipeline (internal "Capture New
+# Lead" page via generic.py, or the public website webhook via public.py) —
+# gets emailed to Go-Get's lead-intake team immediately, same to/cc routing
+# already used for appointment confirmations (LeadDetailsModal.jsx).
+LEAD_CAPTURED_TO_EMAIL = "Shorif@go-get.ca"
+LEAD_CAPTURED_CC_EMAILS = ["cem@go-get.ca"]
+
+
+async def notify_lead_captured(lead) -> None:
+    """Best-effort: callers wrap this in try/except so a transient send
+    failure never blocks the lead creation it's reporting on."""
+    subject = f"New lead: {lead.contact_name}" + (f" ({lead.company_name})" if lead.company_name else "")
+    body = (
+        "A new lead was just added to the pipeline.\n\n"
+        f"Name: {lead.contact_name}\n"
+        f"Company: {lead.company_name or '—'}\n"
+        f"Email: {lead.email or '—'}\n"
+        f"Phone: {lead.phone or '—'}\n"
+        f"Source: {lead.lead_source or '—'}\n"
+        f"Pipeline: {lead.pipeline_type or '—'}\n"
+        f"Notes: {lead.notes or '—'}\n"
+    )
+    await send_email(to=LEAD_CAPTURED_TO_EMAIL, cc=LEAD_CAPTURED_CC_EMAILS, subject=subject, body=body)
 
 
 async def notify_firm(

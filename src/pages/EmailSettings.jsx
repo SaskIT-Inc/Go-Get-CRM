@@ -11,6 +11,8 @@ import { toast } from 'sonner';
 const CONNECT_ERROR_MESSAGES = {
   google_oauth_failed: 'Could not connect your Google account. Please try again.',
   google_oauth_no_refresh_token: 'Google did not grant lasting access. Please try connecting again.',
+  outlook_oauth_failed: 'Could not connect your Outlook account. Please try again.',
+  outlook_oauth_no_refresh_token: 'Microsoft did not grant lasting access. Please try connecting again.',
   onedrive_oauth_failed: 'Could not connect your OneDrive account. Please try again.',
   onedrive_oauth_no_refresh_token: 'Microsoft did not grant lasting access. Please try connecting again.',
 };
@@ -25,6 +27,7 @@ export default function EmailSettings() {
     queryFn: () => api.integrations.getConnectedAccounts(),
   });
   const googleAccount = accounts.find((a) => a.provider === 'google');
+  const microsoftAccount = accounts.find((a) => a.provider === 'microsoft');
 
   const { data: oneDriveStatus, isLoading: isLoadingOneDrive } = useQuery({
     queryKey: ['oneDriveStatus'],
@@ -33,7 +36,7 @@ export default function EmailSettings() {
 
   useEffect(() => {
     if (searchParams.get('email_connected')) {
-      toast.success('Gmail account connected');
+      toast.success('Mailbox connected');
       queryClient.invalidateQueries(['connectedEmailAccounts']);
       navigate(createPageUrl('EmailSettings'), { replace: true });
     } else if (searchParams.get('onedrive_connected')) {
@@ -60,6 +63,23 @@ export default function EmailSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries(['connectedEmailAccounts']);
       toast.success('Gmail account disconnected');
+    },
+    onError: (error) => toast.error('Failed to disconnect: ' + error.message),
+  });
+
+  const connectOutlookMutation = useMutation({
+    mutationFn: () => api.integrations.getOutlookConnectUrl(),
+    onSuccess: ({ authorize_url }) => {
+      window.location.href = authorize_url;
+    },
+    onError: (error) => toast.error('Could not start Outlook connection: ' + error.message),
+  });
+
+  const disconnectOutlookMutation = useMutation({
+    mutationFn: () => api.integrations.disconnectOutlook(),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['connectedEmailAccounts']);
+      toast.success('Outlook account disconnected');
     },
     onError: (error) => toast.error('Failed to disconnect: ' + error.message),
   });
@@ -108,7 +128,8 @@ export default function EmailSettings() {
         <CardContent className="pt-6 space-y-3">
           <p className="text-sm text-muted-foreground mb-2">
             Emails sent from the CRM's Compose screen go out through your own connected mailbox, not a shared
-            company address. Nothing here affects your login or team invitations.
+            company address. Nothing here affects your login or team invitations. You can connect one mailbox at
+            a time — connecting Outlook while Gmail is connected (or vice versa) replaces the previous one.
           </p>
 
           {isLoading ? (
@@ -159,17 +180,45 @@ export default function EmailSettings() {
                 )}
               </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg opacity-60">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0">
                     <Mail className="w-4 h-4 text-blue-500" />
                   </div>
                   <div>
                     <p className="font-semibold text-navy">Microsoft / Outlook</p>
-                    <span className="text-sm text-muted-foreground">Coming soon</span>
+                    {microsoftAccount ? (
+                      <span className="text-sm text-green-700 flex items-center gap-1">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Connected: {microsoftAccount.email_address}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Not connected</span>
+                    )}
                   </div>
                 </div>
-                <Button size="sm" disabled>Connect</Button>
+                {microsoftAccount ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={disconnectOutlookMutation.isPending}
+                    onClick={() => disconnectOutlookMutation.mutate()}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Disconnect
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="gap-2"
+                    disabled={connectOutlookMutation.isPending}
+                    onClick={() => connectOutlookMutation.mutate()}
+                  >
+                    {connectOutlookMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Connect Outlook
+                  </Button>
+                )}
               </div>
             </>
           )}

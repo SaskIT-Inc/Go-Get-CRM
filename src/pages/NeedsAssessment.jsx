@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, ClipboardList, Loader2 } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { SERVICE_OPTIONS, MONTHLY_PACKAGES } from '@/lib/serviceCatalog';
 
 export default function NeedsAssessment() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function NeedsAssessment() {
   const [selectedLead, setSelectedLead] = useState('');
   const [assessmentData, setAssessmentData] = useState({
     services_needed: [],
+    monthly_package: '',
     pain_points: '',
     current_situation: '',
     desired_outcomes: '',
@@ -44,18 +46,6 @@ export default function NeedsAssessment() {
     }
   });
 
-  const serviceOptions = [
-    'Personal Tax Filing',
-    'Corporate Tax',
-    'Bookkeeping',
-    'Payroll Services',
-    'GST/HST Filing',
-    'Incorporation',
-    'Financial Planning',
-    'Tax Planning',
-    'Audit Support'
-  ];
-
   const handleServiceToggle = (service) => {
     setAssessmentData(prev => ({
       ...prev,
@@ -63,6 +53,10 @@ export default function NeedsAssessment() {
         ? prev.services_needed.filter(s => s !== service)
         : [...prev.services_needed, service]
     }));
+  };
+
+  const selectPackage = (name) => {
+    setAssessmentData(prev => ({ ...prev, monthly_package: prev.monthly_package === name ? '' : name }));
   };
 
   const handleSubmit = (e) => {
@@ -75,7 +69,7 @@ export default function NeedsAssessment() {
 
     const payload = {
       services_interested: assessmentData.services_needed,
-      notes: `NEEDS ASSESSMENT:\n\nPain Points: ${assessmentData.pain_points}\n\nCurrent Situation: ${assessmentData.current_situation}\n\nDesired Outcomes: ${assessmentData.desired_outcomes}\n\nBudget: ${assessmentData.budget_range}\n\nTimeline: ${assessmentData.timeline}\n\nDecision Makers: ${assessmentData.decision_makers}\n\nNext Steps: ${assessmentData.next_steps}`,
+      notes: `NEEDS ASSESSMENT:\n\nMonthly Package Interest: ${assessmentData.monthly_package || 'None selected'}\n\nPain Points: ${assessmentData.pain_points}\n\nCurrent Situation: ${assessmentData.current_situation}\n\nDesired Outcomes: ${assessmentData.desired_outcomes}\n\nBudget: ${assessmentData.budget_range}\n\nTimeline: ${assessmentData.timeline}\n\nDecision Makers: ${assessmentData.decision_makers}\n\nNext Steps: ${assessmentData.next_steps}`,
       stage: 'Needs Assessment'
     };
 
@@ -123,18 +117,55 @@ export default function NeedsAssessment() {
             <div className="space-y-3">
               <Label>Services Needed *</Label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {serviceOptions.map(service => (
-                  <div key={service} className="flex items-center gap-2">
+                {SERVICE_OPTIONS.map(service => (
+                  <div key={service.name} className="flex items-start space-x-2 p-3 border rounded-lg hover:bg-slate-50">
                     <Checkbox
-                      id={service}
-                      checked={assessmentData.services_needed.includes(service)}
-                      onCheckedChange={() => handleServiceToggle(service)}
+                      id={service.name}
+                      className="mt-0.5"
+                      checked={assessmentData.services_needed.includes(service.name)}
+                      onCheckedChange={() => handleServiceToggle(service.name)}
                     />
-                    <Label htmlFor={service} className="cursor-pointer font-normal">
-                      {service}
-                    </Label>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <Label htmlFor={service.name} className="cursor-pointer text-sm font-medium leading-snug">{service.name}</Label>
+                        <span className="text-xs font-bold text-navy whitespace-nowrap flex-shrink-0">{service.fee}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{service.details}</p>
+                    </div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Monthly Package Interest (optional)</Label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {MONTHLY_PACKAGES.map(pkg => {
+                  const selected = assessmentData.monthly_package === pkg.name;
+                  return (
+                    <button
+                      type="button"
+                      key={pkg.name}
+                      onClick={() => selectPackage(pkg.name)}
+                      className={`text-left p-3 border rounded-lg transition-colors ${
+                        selected ? 'border-navy bg-blue-50/60 ring-1 ring-navy' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm font-semibold">{pkg.name}</span>
+                        {selected ? (
+                          <Check className="w-4 h-4 text-navy flex-shrink-0" />
+                        ) : (
+                          <span className="text-xs font-bold text-navy whitespace-nowrap">{pkg.price}</span>
+                        )}
+                      </div>
+                      {selected && <p className="text-xs font-bold text-navy mb-1.5">{pkg.price}</p>}
+                      <ul className="text-xs text-muted-foreground space-y-0.5">
+                        {pkg.bullets.map(b => <li key={b}>• {b}</li>)}
+                      </ul>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

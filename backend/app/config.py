@@ -47,21 +47,23 @@ class Settings(BaseSettings):
     def google_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
 
-    # Microsoft OneDrive OAuth (per-user "Connect your OneDrive" — Settings >
-    # Email, delegated Files.ReadWrite + offline_access). Distinct from the
-    # graph_* app-only mail sender above: this is a separate Azure AD App
-    # Registration (or the same one with delegated permissions added) using
-    # the "common" authority so both personal Microsoft accounts and work/
-    # school (Azure AD) accounts can connect their own OneDrive. Each staff
-    # member or client connects their own account; nothing here is required
-    # for the rest of the app to function.
-    onedrive_client_id: str = ""
-    onedrive_client_secret: str = ""
+    # Microsoft per-user OAuth ("Connect your OneDrive" and "Connect your
+    # Outlook" — both in Settings > Email, both delegated permissions,
+    # both distinct from the graph_* app-only mail sender above). One Azure
+    # AD App Registration covers both connectors (add Files.ReadWrite,
+    # Mail.Send, offline_access, and User.Read as delegated permissions on
+    # it) using the "common" authority so both personal Microsoft accounts
+    # and work/school (Azure AD) accounts can connect. Each staff member or
+    # client connects their own account; nothing here is required for the
+    # rest of the app to function.
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
     onedrive_redirect_uri: str = "http://localhost:8070/api/integrations/onedrive/callback"
+    outlook_redirect_uri: str = "http://localhost:8070/api/integrations/outlook/callback"
 
     @property
-    def onedrive_configured(self) -> bool:
-        return bool(self.onedrive_client_id and self.onedrive_client_secret)
+    def microsoft_oauth_configured(self) -> bool:
+        return bool(self.microsoft_client_id and self.microsoft_client_secret)
 
     # Symmetric key (Fernet) used to encrypt OAuth refresh/access tokens at
     # rest (see app/security/crypto.py). Unlike jwt_secret this must be able

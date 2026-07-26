@@ -219,7 +219,7 @@ async def _get_onedrive_account(db: AsyncSession, user_id: str) -> ConnectedOneD
 
 
 def _require_onedrive_configured() -> None:
-    if not settings.onedrive_configured:
+    if not settings.microsoft_oauth_configured:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "OneDrive integration is not configured")
 
 

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -38,7 +39,7 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [meetingType, setMeetingType] = useState('Online');
   const [officeId, setOfficeId] = useState('');
-  const [assignedTeamMemberEmail, setAssignedTeamMemberEmail] = useState('');
+  const [assignedTeamMemberEmails, setAssignedTeamMemberEmails] = useState([]);
   const [otherTeamMemberContact, setOtherTeamMemberContact] = useState('');
   const [otherMeetingLink, setOtherMeetingLink] = useState('');
   const [appointmentDate, setAppointmentDate] = useState('');
@@ -82,59 +83,95 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
     enabled: isAppointmentSet,
   });
 
-  const assignedProfile = activeBookingProfiles.find((p) => p.user_email === assignedTeamMemberEmail);
   const assignedOffice = activeOffices.find((o) => o.id === officeId);
 
   const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  const isOtherTeamMember = assignedTeamMemberEmail === OTHER_TEAM_MEMBER;
+  const includesOther = assignedTeamMemberEmails.includes(OTHER_TEAM_MEMBER);
+  // The real (non-"Other") booking profiles among however many are checked —
+  // a meeting can have several people assigned to it at once.
+  const assignedProfiles = activeBookingProfiles.filter((p) => assignedTeamMemberEmails.includes(p.user_email));
+
+  const toggleAssignedMember = (email) => {
+    setAssignedTeamMemberEmails((prev) =>
+      prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
+    );
+  };
+
+  // Every assigned person's own inbox gets the confirmation, plus whoever
+  // they'd normally cc (e.g. Shorif's profile cc's cem@go-get.ca) — deduped,
+  // since two assigned members can share a cc target. First recipient becomes
+  // the email's "to", the rest become "cc" (SendEmail only takes one "to").
+  const computeRecipients = () => {
+    const recipients = [];
+    const seen = new Set();
+    const add = (email) => {
+      if (email && !seen.has(email)) {
+        seen.add(email);
+        recipients.push(email);
+      }
+    };
+    assignedProfiles.forEach((p) => {
+      add(p.notify_email);
+      (p.cc_emails || []).forEach(add);
+    });
+    if (includesOther) add(OTHER_TEAM_MEMBER_NOTIFY_EMAIL);
+    return recipients;
+  };
 
   const bookAppointmentMutation = useMutation({
     mutationFn: async () => {
-      if (!assignedTeamMemberEmail || !appointmentDate || !appointmentTime) {
-        throw new Error('Pick an assigned team member, date, and time first');
+      if (assignedTeamMemberEmails.length === 0 || !appointmentDate || !appointmentTime) {
+        throw new Error('Pick at least one assigned team member, a date, and a time first');
       }
-      if (isOtherTeamMember && !otherTeamMemberContact.trim()) {
+      if (includesOther && !otherTeamMemberContact.trim()) {
         throw new Error("Enter the other team member's name or email first");
       }
 
-      const daysAvailable = assignedProfile?.days_available;
-      if (daysAvailable?.length) {
-        const dayAbbr = DAY_ABBR[new Date(`${appointmentDate}T00:00:00`).getDay()];
-        if (!daysAvailable.includes(dayAbbr)) {
-          throw new Error(`This team member isn't available on ${dayAbbr}s. Available days: ${daysAvailable.join(', ')}`);
+      const dayAbbr = DAY_ABBR[new Date(`${appointmentDate}T00:00:00`).getDay()];
+      for (const profile of assignedProfiles) {
+        const staffMember = staffUsers.find((u) => u.email === profile.user_email);
+        const label = staffMember?.full_name || profile.user_email;
+        const daysAvailable = profile.days_available;
+        if (daysAvailable?.length && !daysAvailable.includes(dayAbbr)) {
+          throw new Error(`${label} isn't available on ${dayAbbr}s. Available days: ${daysAvailable.join(', ')}`);
         }
-      }
-      const startBound = assignedProfile?.working_hours_start;
-      const endBound = assignedProfile?.working_hours_end;
-      if (startBound && endBound && (appointmentTime < startBound || appointmentTime >= endBound)) {
-        throw new Error(`This team member's working hours are ${startBound}–${endBound}. Pick a time in that range.`);
+        const startBound = profile.working_hours_start;
+        const endBound = profile.working_hours_end;
+        if (startBound && endBound && (appointmentTime < startBound || appointmentTime >= endBound)) {
+          throw new Error(`${label}'s working hours are ${startBound}–${endBound}. Pick a time in that range.`);
+        }
       }
 
       const startDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
-      const slotMinutes = assignedProfile?.slot_duration_minutes || 30;
+      const slotMinutes = Math.max(...assignedProfiles.map((p) => p.slot_duration_minutes || 30), 30);
       const endDateTime = new Date(startDateTime.getTime() + slotMinutes * 60000);
 
-      const hasConflict = !isOtherTeamMember && existingAppointments.some((apt) => {
-        if (apt.status === 'Cancelled') return false;
-        if (!(apt.assigned_to || []).includes(assignedTeamMemberEmail)) return false;
-        const aptStart = new Date(apt.start_time);
-        const aptEnd = new Date(apt.end_time);
-        return startDateTime < aptEnd && endDateTime > aptStart;
-      });
+      const hasConflict = assignedProfiles.some((profile) =>
+        existingAppointments.some((apt) => {
+          if (apt.status === 'Cancelled') return false;
+          if (!(apt.assigned_to || []).includes(profile.user_email)) return false;
+          const aptStart = new Date(apt.start_time);
+          const aptEnd = new Date(apt.end_time);
+          return startDateTime < aptEnd && endDateTime > aptStart;
+        })
+      );
       if (hasConflict) {
-        throw new Error('This team member already has an appointment during that time. Pick another slot.');
+        throw new Error('One of the assigned team members already has an appointment during that time. Pick another slot.');
       }
 
-      const assignedLabel = isOtherTeamMember ? otherTeamMemberContact.trim() : assignedTeamMemberEmail;
-      const onlineMeetingLink = isOtherTeamMember ? otherMeetingLink.trim() : (assignedProfile?.zoom_link || '');
+      const assignedLabels = [
+        ...assignedProfiles.map((p) => p.user_email),
+        ...(includesOther && otherTeamMemberContact.trim() ? [otherTeamMemberContact.trim()] : []),
+      ];
+      const onlineMeetingLink = otherMeetingLink.trim() || assignedProfiles.find((p) => p.zoom_link)?.zoom_link || '';
 
       const appointment = await api.entities.Appointment.create({
         title: `Meeting with ${lead.contact_name}`,
         appointment_type: meetingType,
         start_time: startDateTime.toISOString(),
         end_time: endDateTime.toISOString(),
-        assigned_to: [assignedLabel],
+        assigned_to: assignedLabels,
         location: meetingType === 'In-Person' ? (assignedOffice?.name || '') : '',
         meeting_link: meetingType === 'Online' ? onlineMeetingLink : '',
         lead_id: lead.id,
@@ -143,10 +180,14 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
 
       await api.entities.Lead.update(lead.id, { stage: 'Appointment Set', meeting_type: meetingType });
 
-      const staffMember = staffUsers.find((u) => u.email === assignedTeamMemberEmail);
-      const assignedDisplayName = isOtherTeamMember ? assignedLabel : (staffMember?.full_name || assignedTeamMemberEmail);
-      const notifyEmail = isOtherTeamMember ? OTHER_TEAM_MEMBER_NOTIFY_EMAIL : (assignedProfile?.notify_email || assignedTeamMemberEmail);
-      const ccEmails = isOtherTeamMember ? [] : (assignedProfile?.cc_emails || []);
+      const assignedDisplayNames = [
+        ...assignedProfiles.map((p) => staffUsers.find((u) => u.email === p.user_email)?.full_name || p.user_email),
+        ...(includesOther && otherTeamMemberContact.trim() ? [otherTeamMemberContact.trim()] : []),
+      ];
+      const assignedDisplayName = assignedDisplayNames.join(', ');
+      const recipients = computeRecipients();
+      const notifyEmail = recipients[0] || OTHER_TEAM_MEMBER_NOTIFY_EMAIL;
+      const ccEmails = recipients.slice(1);
       const whenText = startDateTime.toLocaleString('en-CA', {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -159,7 +200,7 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
         to: notifyEmail,
         cc: ccEmails,
         subject: `New appointment: ${lead.contact_name}`,
-        body: `Hi ${isOtherTeamMember ? '' : (staffMember?.full_name || '')},\n\nA new appointment has been booked${isOtherTeamMember ? ` for ${assignedDisplayName}` : ''}.\n\nLead: ${lead.contact_name}${lead.company_name ? ` (${lead.company_name})` : ''}\nWhen: ${whenText}\nType: ${meetingType}\nWhere: ${whereText}\n\nThis was booked from the Lead Pipeline.`,
+        body: `Hi,\n\nA new appointment has been booked with ${assignedDisplayName}.\n\nLead: ${lead.contact_name}${lead.company_name ? ` (${lead.company_name})` : ''}\nWhen: ${whenText}\nType: ${meetingType}\nWhere: ${whereText}\n\nThis was booked from the Lead Pipeline.`,
       });
 
       await api.entities.Activity.create({
@@ -436,21 +477,31 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-xs">Assigned Team Member</Label>
-                  <Select value={assignedTeamMemberEmail || undefined} onValueChange={setAssignedTeamMemberEmail}>
-                    <SelectTrigger className="h-9 bg-white"><SelectValue placeholder="Select team member..." /></SelectTrigger>
-                    <SelectContent>
-                      {activeBookingProfiles.map((profile) => {
-                        const staffMember = staffUsers.find((u) => u.email === profile.user_email);
-                        return (
-                          <SelectItem key={profile.id} value={profile.user_email}>
-                            {staffMember?.full_name || profile.user_email}
-                          </SelectItem>
-                        );
-                      })}
-                      <SelectItem value={OTHER_TEAM_MEMBER}>Other team member</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-xs">Assigned Team Member(s)</Label>
+                  <div className="border rounded-lg bg-white divide-y max-h-40 overflow-y-auto">
+                    {activeBookingProfiles.map((profile) => {
+                      const staffMember = staffUsers.find((u) => u.email === profile.user_email);
+                      return (
+                        <label
+                          key={profile.id}
+                          className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50"
+                        >
+                          <Checkbox
+                            checked={assignedTeamMemberEmails.includes(profile.user_email)}
+                            onCheckedChange={() => toggleAssignedMember(profile.user_email)}
+                          />
+                          {staffMember?.full_name || profile.user_email}
+                        </label>
+                      );
+                    })}
+                    <label className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+                      <Checkbox
+                        checked={includesOther}
+                        onCheckedChange={() => toggleAssignedMember(OTHER_TEAM_MEMBER)}
+                      />
+                      Other team member
+                    </label>
+                  </div>
                   {activeBookingProfiles.length === 0 && (
                     <p className="text-xs text-muted-foreground">
                       No team members configured yet — add them under Settings &gt; Team Members (Booking).
@@ -458,19 +509,22 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                   )}
                 </div>
 
-                {isOtherTeamMember && (
+                {includesOther && (
                   <div className="space-y-2">
-                    <Label className="text-xs">Team Member Name / Email</Label>
+                    <Label className="text-xs">Other Team Member Name / Email</Label>
                     <Input
                       value={otherTeamMemberContact}
                       onChange={(e) => setOtherTeamMemberContact(e.target.value)}
                       placeholder="e.g. Jane Doe or jane@go-get.ca"
                       className="bg-white"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Confirmation will be sent to {OTHER_TEAM_MEMBER_NOTIFY_EMAIL}.
-                    </p>
                   </div>
+                )}
+
+                {assignedTeamMemberEmails.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Confirmation will be sent to: {computeRecipients().join(', ') || OTHER_TEAM_MEMBER_NOTIFY_EMAIL}.
+                  </p>
                 )}
 
                 {meetingType === 'In-Person' ? (
@@ -490,7 +544,7 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                 ) : (
                   <div className="space-y-2">
                     <Label className="text-xs">Meeting Link</Label>
-                    {isOtherTeamMember ? (
+                    {includesOther ? (
                       <Input
                         value={otherMeetingLink}
                         onChange={(e) => setOtherMeetingLink(e.target.value)}
@@ -498,7 +552,17 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                         className="bg-white"
                       />
                     ) : (
-                      <Input value={assignedProfile?.zoom_link || ''} disabled placeholder="Auto-filled from the assigned team member" className="bg-white" />
+                      <Input
+                        value={assignedProfiles.find((p) => p.zoom_link)?.zoom_link || ''}
+                        disabled
+                        placeholder="Auto-filled from the assigned team member"
+                        className="bg-white"
+                      />
+                    )}
+                    {assignedProfiles.length > 1 && (
+                      <p className="text-xs text-muted-foreground">
+                        Multiple team members assigned — using the first one's meeting link.
+                      </p>
                     )}
                   </div>
                 )}
@@ -520,10 +584,10 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                   onClick={() => bookAppointmentMutation.mutate()}
                   disabled={
                     bookAppointmentMutation.isPending ||
-                    !assignedTeamMemberEmail ||
+                    assignedTeamMemberEmails.length === 0 ||
                     !appointmentDate ||
                     !appointmentTime ||
-                    (isOtherTeamMember && !otherTeamMemberContact.trim())
+                    (includesOther && !otherTeamMemberContact.trim())
                   }
                 >
                   <CalendarClock className="w-4 h-4" />

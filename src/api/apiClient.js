@@ -116,6 +116,7 @@ export const api = {
   users: {
     inviteUser: (data) => request('/auth/invite', { method: 'POST', body: data }),
     updateAccess: (userId, data) => request(`/auth/users/${userId}/access`, { method: 'PATCH', body: data }),
+    deleteUser: (userId) => request(`/auth/users/${userId}`, { method: 'DELETE' }),
   },
 
   company: {
@@ -152,6 +153,8 @@ export const api = {
     getOneDriveStatus: () => request('/api/integrations/onedrive/status'),
     getOneDriveConnectUrl: () => request('/api/integrations/onedrive/connect'),
     disconnectOneDrive: () => request('/api/integrations/onedrive/disconnect', { method: 'DELETE' }),
+    getOutlookConnectUrl: () => request('/api/integrations/outlook/connect'),
+    disconnectOutlook: () => request('/api/integrations/outlook/disconnect', { method: 'DELETE' }),
   },
 
   functions: {

@@ -30,7 +30,7 @@ from ..modules import (
     STAFF_ROLES,
     has_permission,
 )
-from ..notify import log_activity, notify_firm
+from ..notify import log_activity, notify_firm, notify_lead_captured
 from ..serialization import apply_update, build_create, serialize
 
 router = APIRouter(prefix="/api", tags=["entities"])
@@ -409,6 +409,11 @@ async def create_entity(
             )
         except Exception:
             pass
+        if entity == "Lead":
+            try:
+                await notify_lead_captured(obj)
+            except Exception:
+                pass
 
     if entity in ACTIVITY_ON_CREATE:
         client_id, activity_type, title = ACTIVITY_ON_CREATE[entity](obj)

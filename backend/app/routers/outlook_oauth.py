@@ -1,15 +1,20 @@
 """
-Per-user "Connect your OneDrive" OAuth (Settings > Email > Connected Cloud
-Storage). Mirrors google_oauth.py's shape exactly, but against Microsoft's
-identity platform "common" authority so both personal Microsoft accounts and
-work/school (Azure AD) accounts can connect — distinct from the Graph
-app-only mail sender in adapters/email.py, which is unaffected by any of
-this.
+Per-user "Connect your Outlook" OAuth (Settings > Email > Connected Account).
+Mirrors google_oauth.py's shape, but against Microsoft's identity platform
+"common" authority (same as onedrive_oauth.py) so both personal Microsoft
+accounts and work/school (Azure AD) accounts can connect — distinct from the
+Graph app-only mail sender in adapters/email.py, which is unaffected by any
+of this.
+
+Shares the ConnectedEmailAccount table with Gmail (provider="microsoft" vs
+"google") since a user connects exactly one mailbox to send CRM email as
+themselves — connecting one replaces the other, same as re-connecting Gmail
+would overwrite a prior Gmail connection.
 
 /connect and /disconnect are normal authenticated endpoints. /callback is
 not — it's Microsoft redirecting the user's browser directly, so the
 caller's identity comes from the signed `state` token minted in /connect,
-same pattern as google_oauth.py.
+same pattern as google_oauth.py / onedrive_oauth.py.
 """
 
 import datetime
@@ -24,43 +29,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import ConnectedOneDriveAccount
+from ..models import ConnectedEmailAccount
 from ..security import create_oauth_state_token, decode_oauth_state_token, encrypt_secret
 
-router = APIRouter(prefix="/api/integrations/onedrive", tags=["integrations"])
+router = APIRouter(prefix="/api/integrations/outlook", tags=["integrations"])
 
 MS_AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
-ONEDRIVE_SCOPE = "Files.ReadWrite offline_access User.Read"
+OUTLOOK_SCOPE = "Mail.Send offline_access User.Read"
 
 # Settings > Email lives at this frontend route (src/App.jsx); the callback
 # redirects the browser back here once the connection succeeds or fails.
 _REDIRECT_PAGE = "/EmailSettings"
 
 
-@router.get("/status")
-async def onedrive_status(user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(ConnectedOneDriveAccount).where(ConnectedOneDriveAccount.user_id == user.id)
-    )
-    account = result.scalar_one_or_none()
-    if account is None:
-        return {"connected": False, "email_address": None}
-    return {"connected": True, "email_address": account.email_address}
-
-
 @router.get("/connect")
-async def onedrive_connect(user=Depends(get_current_user)):
+async def outlook_connect(user=Depends(get_current_user)):
     if not settings.microsoft_oauth_configured:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "OneDrive integration is not configured")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Outlook integration is not configured")
 
-    state = create_oauth_state_token({"user_id": user.id, "purpose": "onedrive_oauth"})
+    state = create_oauth_state_token({"user_id": user.id, "purpose": "outlook_oauth"})
     params = {
         "client_id": settings.microsoft_client_id,
-        "redirect_uri": settings.onedrive_redirect_uri,
+        "redirect_uri": settings.outlook_redirect_uri,
         "response_type": "code",
-        "scope": ONEDRIVE_SCOPE,
+        "scope": OUTLOOK_SCOPE,
         "response_mode": "query",
         "prompt": "consent",
         "state": state,
@@ -69,7 +63,7 @@ async def onedrive_connect(user=Depends(get_current_user)):
 
 
 @router.get("/callback")
-async def onedrive_callback(
+async def outlook_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
@@ -78,11 +72,11 @@ async def onedrive_callback(
     redirect_base = f"{settings.frontend_base_url.rstrip('/')}{_REDIRECT_PAGE}"
 
     if error or not code or not state:
-        return RedirectResponse(f"{redirect_base}?onedrive_connect_error=onedrive_oauth_failed")
+        return RedirectResponse(f"{redirect_base}?email_connect_error=outlook_oauth_failed")
 
     payload = decode_oauth_state_token(state)
-    if not payload or payload.get("purpose") != "onedrive_oauth":
-        return RedirectResponse(f"{redirect_base}?onedrive_connect_error=onedrive_oauth_failed")
+    if not payload or payload.get("purpose") != "outlook_oauth":
+        return RedirectResponse(f"{redirect_base}?email_connect_error=outlook_oauth_failed")
 
     user_id = payload["user_id"]
 
@@ -94,24 +88,24 @@ async def onedrive_callback(
                 "client_secret": settings.microsoft_client_secret,
                 "code": code,
                 "grant_type": "authorization_code",
-                "redirect_uri": settings.onedrive_redirect_uri,
-                "scope": ONEDRIVE_SCOPE,
+                "redirect_uri": settings.outlook_redirect_uri,
+                "scope": OUTLOOK_SCOPE,
             },
         )
         if token_response.status_code != 200:
-            return RedirectResponse(f"{redirect_base}?onedrive_connect_error=onedrive_oauth_failed")
+            return RedirectResponse(f"{redirect_base}?email_connect_error=outlook_oauth_failed")
         tokens = token_response.json()
 
         refresh_token = tokens.get("refresh_token")
         if not refresh_token:
-            return RedirectResponse(f"{redirect_base}?onedrive_connect_error=onedrive_oauth_no_refresh_token")
+            return RedirectResponse(f"{redirect_base}?email_connect_error=outlook_oauth_no_refresh_token")
 
         userinfo_response = await client.get(
             GRAPH_ME_URL,
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
         )
         if userinfo_response.status_code != 200:
-            return RedirectResponse(f"{redirect_base}?onedrive_connect_error=onedrive_oauth_failed")
+            return RedirectResponse(f"{redirect_base}?email_connect_error=outlook_oauth_failed")
         userinfo = userinfo_response.json()
         # Personal Microsoft accounts often have `mail: null` — userPrincipalName
         # is always present and is the right fallback identifier either way.
@@ -119,27 +113,28 @@ async def onedrive_callback(
 
     now = datetime.datetime.now(datetime.timezone.utc)
     result = await db.execute(
-        select(ConnectedOneDriveAccount).where(ConnectedOneDriveAccount.user_id == user_id)
+        select(ConnectedEmailAccount).where(ConnectedEmailAccount.user_id == user_id)
     )
     account = result.scalar_one_or_none()
     if account is None:
-        account = ConnectedOneDriveAccount(user_id=user_id, extra={})
+        account = ConnectedEmailAccount(user_id=user_id, extra={})
         db.add(account)
 
+    account.provider = "microsoft"
     account.email_address = email_address
     account.refresh_token_encrypted = encrypt_secret(refresh_token)
     account.access_token_encrypted = encrypt_secret(tokens["access_token"])
     account.access_token_expires_at = now + datetime.timedelta(seconds=tokens["expires_in"])
-    account.scopes = tokens.get("scope", ONEDRIVE_SCOPE)
+    account.scopes = tokens.get("scope", OUTLOOK_SCOPE)
     await db.commit()
 
-    return RedirectResponse(f"{redirect_base}?onedrive_connected=1")
+    return RedirectResponse(f"{redirect_base}?email_connected=1")
 
 
 @router.delete("/disconnect")
-async def onedrive_disconnect(user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def outlook_disconnect(user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(ConnectedOneDriveAccount).where(ConnectedOneDriveAccount.user_id == user.id)
+        select(ConnectedEmailAccount).where(ConnectedEmailAccount.user_id == user.id)
     )
     account = result.scalar_one_or_none()
     if account:

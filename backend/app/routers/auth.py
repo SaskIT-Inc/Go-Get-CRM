@@ -12,7 +12,7 @@ from ..adapters.email import send_email
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import MODELS, EmailVerification, Invitation
+from ..models import MODELS, ConnectedEmailAccount, ConnectedOneDriveAccount, EmailVerification, Invitation
 from ..modules import INVITABLE, normalize_matrix
 from ..security import create_access_token, hash_password, verify_password
 from ..serialization import serialize
@@ -474,3 +474,59 @@ async def update_user_access(
     await db.commit()
     await db.refresh(target)
     return serialize("User", target)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    actor=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Permanently removes a User row (as opposed to PATCH .../access's
+    is_active toggle, which only blocks login/hides them from pickers).
+    Records elsewhere that reference this person — task assignments, filing
+    notes, invoice authorship, activity logs — store a plain email string
+    rather than a foreign key (see models/definitions.py), so nothing else
+    in the database is cascade-deleted; those records simply keep showing
+    the now-defunct email, same as they would for any other stale
+    assigned_to value.
+    """
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if target.id == actor.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't delete your own account")
+
+    allowed_targets = set(INVITABLE.get(actor.role, set()))
+    if actor.role == "director":
+        allowed_targets |= {"director"}
+    if target.role not in allowed_targets:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't manage this user")
+
+    if target.role == "director":
+        remaining = (
+            await db.execute(
+                select(func.count())
+                .select_from(User)
+                .where(User.role == "director", User.is_active.is_(True), User.id != target.id)
+            )
+        ).scalar_one()
+        if remaining == 0:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "A firm must always have at least one active director"
+            )
+
+    # Real FK-backed rows (unlike the plain-string references above) — must
+    # go first or the User delete below hits a foreign-key violation.
+    for account in (
+        await db.execute(select(ConnectedEmailAccount).where(ConnectedEmailAccount.user_id == target.id))
+    ).scalars():
+        await db.delete(account)
+    for account in (
+        await db.execute(select(ConnectedOneDriveAccount).where(ConnectedOneDriveAccount.user_id == target.id))
+    ).scalars():
+        await db.delete(account)
+
+    await db.delete(target)
+    await db.commit()

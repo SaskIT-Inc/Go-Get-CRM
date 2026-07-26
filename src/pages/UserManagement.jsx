@@ -48,6 +48,15 @@ export default function UserManagement() {
     onError: (error) => toast.error(`Failed to update user: ${error.message}`),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (userId) => api.users.deleteUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User deleted');
+    },
+    onError: (error) => toast.error(`Failed to delete user: ${error.message}`),
+  });
+
   const handleInvite = () => {
     if (!invite.email || !invite.role) {
       toast.error('Email and role are required');
@@ -147,6 +156,7 @@ export default function UserManagement() {
                 u={u}
                 currentUser={user}
                 onSave={(userId, data) => accessMutation.mutate({ userId, data })}
+                onDelete={(userId) => deleteMutation.mutate(userId)}
               />
             ))}
           </div>
