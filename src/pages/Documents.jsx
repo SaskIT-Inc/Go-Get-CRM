@@ -9,14 +9,12 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import DocumentCard from '../components/documents/DocumentCard';
 import DocumentUploader from '../components/documents/DocumentUploader';
-import DocumentPreviewModal from '../components/documents/DocumentPreviewModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function Documents() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [showUploader, setShowUploader] = useState(false);
-  const [previewDocument, setPreviewDocument] = useState(null);
 
   const { data: documents = [] } = useQuery({
     queryKey: ['documents'],
@@ -94,7 +92,7 @@ export default function Documents() {
               key={doc.id}
               document={doc}
               clientName={client?.legal_name || 'Unknown Client'}
-              onView={setPreviewDocument}
+              onView={(document) => window.open(document.file_url, '_blank')}
             />
           );
         })}
@@ -125,15 +123,6 @@ export default function Documents() {
           <DocumentUploader onComplete={() => setShowUploader(false)} />
         </DialogContent>
       </Dialog>
-
-      {/* Document Preview Modal */}
-      {previewDocument && (
-        <DocumentPreviewModal
-          document={previewDocument}
-          clientName={clients.find(c => c.id === previewDocument.client_id)?.legal_name}
-          onClose={() => setPreviewDocument(null)}
-        />
-      )}
     </div>
   );
 }
