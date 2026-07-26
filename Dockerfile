@@ -13,7 +13,7 @@ COPY src ./src
 # real deployment domain. Defaults to same-origin, which is correct for the
 # single-container setup this Dockerfile produces (frontend and API share
 # one host:port).
-ARG VITE_API_BASE_URL=http://localhost:8070
+ARG VITE_API_BASE_URL=https://aeasy.ca
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 

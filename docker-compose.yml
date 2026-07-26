@@ -2,8 +2,6 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    # Instance-per-firm: each firm gets its own database, each with a small
-    # connection pool, so the server-wide connection ceiling is raised.
     command: postgres -c max_connections=200
     environment:
       POSTGRES_USER: gogetcrm
