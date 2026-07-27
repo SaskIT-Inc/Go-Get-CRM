@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .. import ws_manager
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import MODELS, REQUIRED_FIELDS
@@ -30,7 +31,15 @@ from ..modules import (
     STAFF_ROLES,
     has_permission,
 )
-from ..notify import log_activity, notify_firm, notify_lead_captured
+from ..notify import (
+    log_activity,
+    notify_client_document_uploaded,
+    notify_client_message,
+    notify_firm,
+    notify_lead_captured,
+    notify_specific_staff,
+    recipients_for_client,
+)
 from ..serialization import apply_update, build_create, serialize
 
 router = APIRouter(prefix="/api", tags=["entities"])
@@ -75,6 +84,8 @@ def _authorize(entity: str, model: type, user, *, action: str):
 
     if entity in ("Conversation", "Message"):
         return _conversation_scope_filter(entity, model, user)
+    if entity == "Communication":
+        return _communication_scope_filter(model, user)
     return None
 
 
@@ -90,13 +101,27 @@ def _authorize_notification(model: type, user, *, action: str):
 
 def _conversation_scope_filter(entity: str, model: type, user):
     """Conversations (and their messages) are visible only to participants —
-    not automatically to the whole firm or even to a Director (see
-    app/modules.py: conversations is the one module director_implied=False)."""
+    having the 'conversations' module permission (implied for a Director,
+    grantable to anyone else) only means you're allowed to use chat at all,
+    not that you can read every thread in the firm."""
     Conversation = MODELS["Conversation"]
     if entity == "Conversation":
         return model.participant_emails.contains([user.email])
     return model.conversation_id.in_(
         select(Conversation.id).where(Conversation.participant_emails.contains([user.email]))
+    )
+
+
+def _communication_scope_filter(model: type, user):
+    """A client's Communication thread is only open to that client's
+    assigned team member, plus admin/director (who can reach any client) —
+    everyone else gets an empty result set, not a 403, same pattern as
+    _conversation_scope_filter above."""
+    if user.role in ("director", "admin"):
+        return None
+    Client = MODELS["Client"]
+    return model.client_id.in_(
+        select(Client.id).where(func.lower(Client.assigned_to) == user.email)
     )
 
 
@@ -110,24 +135,29 @@ def _authorize_client(entity: str, model: type, user, *, action: str):
     if entity not in CLIENT_READ_ENTITIES:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not accessible to client accounts")
     Client = MODELS["Client"]
+    # Case-insensitive: user.email is always lowercase (auth.py normalizes
+    # it), and new Client.primary_email writes are too (serialization.py's
+    # _normalize_value), but defends against any pre-existing mixed-case
+    # data written before that normalization existed.
     if entity == "Client":
-        return model.primary_email == user.email
+        return func.lower(model.primary_email) == user.email
     client_id_column = getattr(model, "client_id", None)
     if client_id_column is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not accessible to client accounts")
-    return client_id_column.in_(select(Client.id).where(Client.primary_email == user.email))
+    return client_id_column.in_(select(Client.id).where(func.lower(Client.primary_email) == user.email))
 
 
 async def _scope_client_create(entity: str, db: AsyncSession, user, body: dict) -> dict:
-    """For a client-role create (Document or DocumentComment): force
-    client_id to the caller's own Client row regardless of what the request
-    body says, so a client can never upload into another client's file
-    space or comment as someone else."""
+    """For a client-role create (Document, DocumentComment, Communication):
+    force client_id to the caller's own Client row regardless of what the
+    request body says, so a client can never upload into another client's
+    file space, comment as someone else, or post a portal message into
+    another client's thread."""
     Client = MODELS["Client"]
     own_client = (
         await db.execute(
             select(Client.id, Client.primary_contact_name, Client.legal_name).where(
-                Client.primary_email == user.email
+                func.lower(Client.primary_email) == user.email
             )
         )
     ).first()
@@ -140,6 +170,11 @@ async def _scope_client_create(entity: str, db: AsyncSession, user, body: dict) 
     elif entity == "DocumentComment":
         body["author_email"] = user.email
         body["author_name"] = own_client.primary_contact_name or own_client.legal_name
+    elif entity == "Communication":
+        body["author_email"] = user.email
+        body["sender_type"] = "client"
+        body.setdefault("communication_type", "Portal Message")
+        body.setdefault("communication_date", datetime.datetime.now(datetime.timezone.utc).isoformat())
     return body
 
 
@@ -344,6 +379,7 @@ ACTIVITY_ON_CREATE = {
     "Task": lambda obj: (obj.client_id, "task_created", f"Task created: {obj.title}"),
     "ServiceFiling": lambda obj: (obj.client_id, "filing_created", f"Service added: {obj.service_name}"),
     "Document": lambda obj: (obj.client_id, "document_uploaded", f"Document uploaded: {obj.document_name}"),
+    "Signature": lambda obj: (obj.client_id, "signature_completed", f"Signed: {obj.document_type}"),
 }
 
 
@@ -357,8 +393,23 @@ async def create_entity(
     model = _get_model(entity)
     _authorize(entity, model, user, action="create")
     is_client = getattr(user, "role", None) == "client"
-    if is_client and entity in ("Document", "DocumentComment"):
+    if is_client and entity in ("Document", "DocumentComment", "Communication", "Signature"):
         body = await _scope_client_create(entity, db, user, body)
+    elif entity == "Communication":
+        # Staff posting in the two-way Comms thread (not a client): only the
+        # client's assigned team member (or admin/director, who can reach any
+        # client) may post — everyone else is blocked here even though the
+        # read-side scope filter would already hide the thread from them.
+        if user.role not in ("director", "admin"):
+            target_client = await db.get(MODELS["Client"], body.get("client_id"))
+            if target_client is None or (target_client.assigned_to or "").lower() != user.email:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only message clients assigned to you")
+        # Stamp who sent it the same way the client-scoped branch above does,
+        # and default the timestamp so the frontend doesn't have to set it.
+        body = dict(body)
+        body["author_email"] = user.email
+        body["sender_type"] = "staff"
+        body.setdefault("communication_date", datetime.datetime.now(datetime.timezone.utc).isoformat())
     elif entity == "Conversation":
         body = _scope_conversation_create(user, body)
     elif entity == "Message":
@@ -391,6 +442,61 @@ async def create_entity(
                 body=f"{user.email} shared {getattr(obj, 'document_name', None) or 'a document'}",
                 link_url="/Documents",
             )
+        except Exception:
+            pass
+        if entity == "Document":
+            try:
+                await notify_client_document_uploaded(db, obj)
+            except Exception:
+                pass
+    elif is_client and entity == "Communication":
+        client_for_comm = await db.get(MODELS["Client"], obj.client_id)
+        try:
+            if client_for_comm is not None:
+                recipients = await recipients_for_client(db, client_for_comm, exclude_email=user.email)
+                await notify_specific_staff(
+                    db=db,
+                    actor_email=user.email,
+                    recipients=recipients,
+                    notif_type="client_message",
+                    title="New message from client",
+                    body=f"{user.email} sent a portal message: {(obj.notes or '')[:120]}",
+                    link_url=f"/ClientProfile?client={obj.client_id}",
+                )
+        except Exception:
+            pass
+        try:
+            await notify_client_message(db, obj)
+        except Exception:
+            pass
+        try:
+            recipients = await recipients_for_client(db, client_for_comm) if client_for_comm else []
+            await ws_manager.push(recipients, {"type": "communication", "client_id": obj.client_id})
+        except Exception:
+            pass
+    elif not is_client and entity == "Communication":
+        try:
+            client_for_comm = await db.get(MODELS["Client"], obj.client_id)
+            if client_for_comm is not None and client_for_comm.primary_email:
+                await ws_manager.push(
+                    [client_for_comm.primary_email.lower()],
+                    {"type": "communication", "client_id": obj.client_id},
+                )
+        except Exception:
+            pass
+    elif entity == "Conversation":
+        try:
+            await ws_manager.push(obj.participant_emails or [], {"type": "conversation"})
+        except Exception:
+            pass
+    elif entity == "Message":
+        try:
+            conversation = await db.get(MODELS["Conversation"], obj.conversation_id)
+            if conversation is not None:
+                await ws_manager.push(
+                    conversation.participant_emails or [],
+                    {"type": "message", "conversation_id": obj.conversation_id},
+                )
         except Exception:
             pass
     elif entity in NOTIFY_ON_CREATE:

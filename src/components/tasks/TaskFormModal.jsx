@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TaskTemplateSelector from './TaskTemplateSelector';
 import TaskCommentSection from '../comments/TaskCommentSection';
+import { toast } from 'sonner';
 
 export default function TaskFormModal({ task, onClose, currentUser }) {
   const queryClient = useQueryClient();
@@ -59,15 +60,16 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
       queryClient.invalidateQueries(['myTasks']);
       queryClient.invalidateQueries(['teamTasks']);
       onClose();
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save task');
     }
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const dataToSave = { ...formData };
-    if (dataToSave.estimated_hours) {
-      dataToSave.estimated_hours = Number(dataToSave.estimated_hours);
-    }
+    dataToSave.estimated_hours = dataToSave.estimated_hours ? Number(dataToSave.estimated_hours) : null;
     saveMutation.mutate(dataToSave);
   };
 

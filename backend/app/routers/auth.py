@@ -219,7 +219,7 @@ async def register(body: dict = Body(...), db: AsyncSession = Depends(get_db)):
         )
 
     client = (
-        (await db.execute(select(Client).where(Client.primary_email == email))).scalars().first()
+        (await db.execute(select(Client).where(func.lower(Client.primary_email) == email))).scalars().first()
     )
     if client is None:
         raise HTTPException(

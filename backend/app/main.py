@@ -19,6 +19,7 @@ from .routers import (
     outlook_oauth,
     provincial_tax,
     public,
+    ws_chat,
 )
 
 app = FastAPI(title="GoGetCRM API", version="0.1.0")
@@ -47,6 +48,7 @@ app.include_router(onedrive_oauth.router)
 app.include_router(outlook_oauth.router)
 app.include_router(public.router)
 app.include_router(generic.router)
+app.include_router(ws_chat.router)
 
 
 @app.get("/health")
@@ -67,4 +69,9 @@ if frontend_dist.exists():
         candidate = frontend_dist / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(frontend_dist / "index.html")
+        # no-store: this HTML shell must never be served from the browser's
+        # disk/back-forward cache — every navigation (including "Back") has
+        # to hit the SPA's live JS auth check instead of a frozen snapshot
+        # from before a possible logout. The hashed /assets/* bundles above
+        # are unaffected and still cache normally.
+        return FileResponse(frontend_dist / "index.html", headers={"Cache-Control": "no-store"})

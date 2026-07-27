@@ -7,6 +7,7 @@ mail — this sends as the individual staff member's own connected mailbox.
 
 import base64
 import datetime
+import mimetypes
 from email.message import EmailMessage
 
 import httpx
@@ -55,17 +56,19 @@ async def _get_access_token(account: ConnectedEmailAccount, db: AsyncSession) ->
 async def send_via_gmail(
     account: ConnectedEmailAccount,
     db: AsyncSession,
-    to: str,
+    to: str | list[str],
     subject: str,
     body: str,
     html: bool = False,
     cc: list[str] | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     access_token = await _get_access_token(account, db)
 
     message = EmailMessage()
     message["From"] = account.email_address
-    message["To"] = to
+    to_list = [to] if isinstance(to, str) else to
+    message["To"] = ", ".join(to_list)
     if cc:
         message["Cc"] = ", ".join(cc)
     message["Subject"] = subject
@@ -73,6 +76,11 @@ async def send_via_gmail(
         message.add_alternative(body, subtype="html")
     else:
         message.set_content(body)
+
+    for a in attachments or []:
+        content_type = a.get("content_type") or mimetypes.guess_type(a["name"])[0] or "application/octet-stream"
+        maintype, _, subtype = content_type.partition("/")
+        message.add_attachment(a["content"], maintype=maintype or "application", subtype=subtype or "octet-stream", filename=a["name"])
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
 

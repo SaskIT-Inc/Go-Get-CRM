@@ -31,7 +31,7 @@ const typeIcons = {
   'Other': '📎'
 };
 
-export default function DocumentCard({ document, clientName, onView, onDelete }) {
+export default function DocumentCard({ document: doc, clientName, onView, onDelete }) {
   const getTypeIcon = (docType) => {
     for (const [key, icon] of Object.entries(typeIcons)) {
       if (docType.includes(key)) return icon;
@@ -60,37 +60,37 @@ export default function DocumentCard({ document, clientName, onView, onDelete })
           {/* Icon & Info */}
           <div className="flex items-start gap-3 flex-1 min-w-0">
             <div className="text-3xl flex-shrink-0">
-              {getTypeIcon(document.document_type)}
+              {getTypeIcon(doc.document_type)}
             </div>
             <div className="flex-1 min-w-0">
               <h4 className="font-semibold text-navy truncate mb-1">
-                {document.document_name}
+                {doc.document_name}
               </h4>
               <p className="text-xs text-muted-foreground mb-2">
-                {document.document_type}
+                {doc.document_type}
               </p>
-              
+
               {/* Metadata */}
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mb-2">
-                {document.file_size && (
-                  <span>{formatFileSize(document.file_size)}</span>
+                {doc.file_size && (
+                  <span>{formatFileSize(doc.file_size)}</span>
                 )}
-                {document.tax_year && (
-                  <span>• {document.tax_year}</span>
+                {doc.tax_year && (
+                  <span>• {doc.tax_year}</span>
                 )}
-                {document.created_date && (
-                  <span>• {formatDate(document.created_date)}</span>
+                {doc.created_date && (
+                  <span>• {formatDate(doc.created_date)}</span>
                 )}
               </div>
 
               {/* Tags & Folder */}
               <div className="flex flex-wrap gap-1">
-                {document.folder && (
+                {doc.folder && (
                   <Badge variant="secondary" className="text-xs bg-navy/5 text-navy">
-                    📁 {document.folder}
+                    📁 {doc.folder}
                   </Badge>
                 )}
-                {document.is_verified && (
+                {doc.is_verified && (
                   <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-700">
                     <CheckCircle className="w-3 h-3 mr-1" />
                     Verified
@@ -101,15 +101,15 @@ export default function DocumentCard({ document, clientName, onView, onDelete })
           </div>
 
           {/* Status Badge */}
-          <Badge variant="secondary" className={`${statusColors[document.status]} border flex-shrink-0`}>
-            {document.status}
+          <Badge variant="secondary" className={`${statusColors[doc.status]} border flex-shrink-0`}>
+            {doc.status}
           </Badge>
         </div>
 
         {/* Description */}
-        {document.description && (
+        {doc.description && (
           <p className="text-sm text-muted-foreground mt-3 pt-3 border-t">
-            {document.description}
+            {doc.description}
           </p>
         )}
 
@@ -118,7 +118,7 @@ export default function DocumentCard({ document, clientName, onView, onDelete })
           <Button
             size="sm"
             variant="outline"
-            onClick={() => onView?.(document)}
+            onClick={() => onView?.(doc)}
             className="flex-1 gap-1"
           >
             <Eye className="w-3 h-3" />
@@ -129,8 +129,8 @@ export default function DocumentCard({ document, clientName, onView, onDelete })
             variant="outline"
             onClick={() => {
               const link = document.createElement('a');
-              link.href = document.file_url;
-              link.download = document.document_name;
+              link.href = doc.file_url;
+              link.download = doc.document_name;
               link.click();
             }}
             className="flex-1 gap-1"
@@ -141,7 +141,7 @@ export default function DocumentCard({ document, clientName, onView, onDelete })
           <Button
             size="sm"
             variant="outline"
-            onClick={() => onDelete(document)}
+            onClick={() => onDelete(doc)}
             className="text-red border-red hover:bg-red hover:text-white"
           >
             <Trash2 className="w-3 h-3" />

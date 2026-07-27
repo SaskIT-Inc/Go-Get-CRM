@@ -290,23 +290,21 @@ export default function Tasks() {
                               {task.urgencyLevel.label}
                             </span>
                           </div>
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="pr-16 flex-1">
-                              <h4 className="font-bold text-navy">{task.title}</h4>
-                              {task.description && (
-                                <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                              )}
-                              {task.urgencyExplanation?.length > 0 && (
-                                <div className="mt-2 space-y-0.5">
-                                  {task.urgencyExplanation.map((explanation, idx) => (
-                                    <p key={idx} className="text-xs text-slate-700 font-medium">{explanation}</p>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <Badge className={getPriorityColor(task.priority)}>{task.priority}</Badge>
+                          <div className="pr-16 mb-2">
+                            <h4 className="font-bold text-navy">{task.title}</h4>
+                            {task.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                            )}
+                            {task.urgencyExplanation?.length > 0 && (
+                              <div className="mt-2 space-y-0.5">
+                                {task.urgencyExplanation.map((explanation, idx) => (
+                                  <p key={idx} className="text-xs text-slate-700 font-medium">{explanation}</p>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground mt-3 pt-3 border-t">
+                          <div className="flex items-center flex-wrap gap-4 text-sm text-muted-foreground mt-3 pt-3 border-t">
+                            <Badge className={getPriorityColor(task.priority)}>{task.priority}</Badge>
                             <Badge className={getStatusColor(task.status)} variant="outline">{task.status}</Badge>
                             {task.due_date && (
                               <span className="flex items-center gap-1">
@@ -356,23 +354,21 @@ export default function Tasks() {
                                 {task.urgencyLevel.label}
                               </span>
                             </div>
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="pr-16 flex-1">
-                                <h4 className="font-bold text-navy">{task.title}</h4>
-                                {task.description && (
-                                  <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                                )}
-                                {task.urgencyExplanation?.length > 0 && (
-                                  <div className="mt-2 space-y-0.5">
-                                    {task.urgencyExplanation.map((explanation, idx) => (
-                                      <p key={idx} className="text-xs text-slate-700 font-medium">{explanation}</p>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                              <Badge className={getPriorityColor(task.priority)}>{task.priority}</Badge>
+                            <div className="pr-16 mb-2">
+                              <h4 className="font-bold text-navy">{task.title}</h4>
+                              {task.description && (
+                                <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                              )}
+                              {task.urgencyExplanation?.length > 0 && (
+                                <div className="mt-2 space-y-0.5">
+                                  {task.urgencyExplanation.map((explanation, idx) => (
+                                    <p key={idx} className="text-xs text-slate-700 font-medium">{explanation}</p>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground mt-3 pt-3 border-t">
+                            <div className="flex items-center flex-wrap gap-4 text-sm text-muted-foreground mt-3 pt-3 border-t">
+                              <Badge className={getPriorityColor(task.priority)}>{task.priority}</Badge>
                               <Badge className={getStatusColor(task.status)} variant="outline">{task.status}</Badge>
                               <span className="flex items-center gap-1">
                                 <Users className="w-4 h-4" />

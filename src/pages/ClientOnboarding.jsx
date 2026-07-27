@@ -3,14 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/apiClient';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { 
-  CheckCircle, ArrowRight, ArrowLeft, Building2, Calendar, Users, FileText, 
-  Sparkles, Plus, Clock, AlertCircle, User, ClipboardCheck
+import {
+  CheckCircle, ArrowRight, ArrowLeft, Building2, Calendar, Users, FileText,
+  Sparkles, Plus, Search, ClipboardCheck
 } from 'lucide-react';
 import Step1Identity from '@/components/intake/Step1Identity';
 import Step2Contact from '@/components/intake/Step2Contact';
@@ -18,8 +19,21 @@ import Step3BusinessDetails from '@/components/intake/Step3BusinessDetails';
 import Step4Services from '@/components/intake/Step4Services';
 import Step5Review from '@/components/intake/Step5Review';
 import Step6Checklist from '@/components/intake/Step6Checklist';
+import ClientCard from '@/components/clients/ClientCard';
+import ClientColumn from '@/components/clients/ClientColumn';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+// The forward onboarding path — the same vocabulary ClientProfile.jsx's own
+// status editor uses (Active/Onboarding/Pending/Inactive/Archived), so a
+// client's pipeline stage and its Profile status badge never disagree.
+// Inactive/Archived are manual end-states set later from the Profile page,
+// not pipeline columns — they're exits, not onboarding progress.
+const PIPELINE_STAGES = [
+  { id: 'Onboarding', label: 'Onboarding', color: 'bg-slate-50 border-slate-200' },
+  { id: 'Pending', label: 'Pending', color: 'bg-yellow-50 border-yellow-200' },
+  { id: 'Active', label: 'Active', color: 'bg-green-50 border-green-200' },
+];
 
 export default function ClientOnboarding() {
   const queryClient = useQueryClient();
@@ -86,12 +100,13 @@ export default function ClientOnboarding() {
     { number: 6, title: 'Checklist', icon: ClipboardCheck, component: Step6Checklist }
   ];
 
-  const stages = [
-    { id: 'Lead', label: 'Lead', color: 'bg-slate-50 border-slate-200' },
-    { id: 'Prospect', label: 'Prospect', color: 'bg-yellow-50 border-yellow-200' },
-    { id: 'Client', label: 'Client', color: 'bg-blue-50 border-blue-200' },
-    { id: 'Active', label: 'Active', color: 'bg-green-50 border-green-200' }
-  ];
+  const [pipelineSearch, setPipelineSearch] = useState('');
+
+  const { data: user } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => api.auth.me(),
+    staleTime: 5 * 60 * 1000
+  });
 
   const { data: clients = [] } = useQuery({
     queryKey: ['clients'],
@@ -106,6 +121,21 @@ export default function ClientOnboarding() {
   const { data: retainers = [] } = useQuery({
     queryKey: ['retainers'],
     queryFn: () => api.entities.Retainer.list()
+  });
+
+  const { data: serviceFilings = [] } = useQuery({
+    queryKey: ['serviceFilings'],
+    queryFn: () => api.entities.ServiceFiling.list()
+  });
+
+  const { data: checklists = [] } = useQuery({
+    queryKey: ['documentChecklists'],
+    queryFn: () => api.entities.DocumentChecklist.list()
+  });
+
+  const { data: staffUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.entities.User.list()
   });
 
   const createClientMutation = useMutation({
@@ -164,10 +194,7 @@ export default function ClientOnboarding() {
 
   const updateClientMutation = useMutation({
     mutationFn: ({ id, status }) => api.entities.Client.update(id, { status }),
-    onSuccess: () => {
-      queryClient.invalidateQueries();
-      toast.success('Client status updated');
-    }
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clients'] })
   });
 
   const calculateT2Deadline = (fiscalYearEnd) => {
@@ -180,10 +207,55 @@ export default function ClientOnboarding() {
     return deadline.toISOString().split('T')[0];
   };
 
-  const clientsByStage = stages.map(stage => ({
+  const pipelineClients = clients.filter((c) =>
+    !pipelineSearch ||
+    c.legal_name?.toLowerCase().includes(pipelineSearch.toLowerCase()) ||
+    c.primary_email?.toLowerCase().includes(pipelineSearch.toLowerCase())
+  );
+
+  const clientsByStage = PIPELINE_STAGES.map(stage => ({
     ...stage,
-    clients: clients.filter(c => c.status === stage.id)
+    clients: pipelineClients.filter(c => c.status === stage.id)
   }));
+
+  // A client's checklist completion is spread across each of their service
+  // filings (DocumentChecklist.service_filing_id → ServiceFiling.client_id) —
+  // averaged here into one number so the pipeline card can show a single,
+  // meaningful progress bar instead of a raw document count.
+  const checklistCompletionForClient = (clientId) => {
+    const filingIds = serviceFilings.filter(f => f.client_id === clientId).map(f => f.id);
+    const relevant = checklists.filter(c => filingIds.includes(c.service_filing_id));
+    if (relevant.length === 0) return null;
+    const avg = relevant.reduce((sum, c) => sum + (c.completion_percentage || 0), 0) / relevant.length;
+    return Math.round(avg);
+  };
+
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    const clientId = result.draggableId;
+    const newStatus = result.destination.droppableId;
+    const client = clients.find(c => c.id === clientId);
+    if (!client || client.status === newStatus) return;
+    const fromStatus = client.status;
+    updateClientMutation.mutate(
+      { id: clientId, status: newStatus },
+      {
+        onSuccess: () => {
+          toast.success(`${client.legal_name} moved to "${newStatus}"`);
+          api.entities.Activity.create({
+            client_id: clientId,
+            activity_type: 'stage_change',
+            title: `Moved to "${newStatus}"`,
+            from_stage: fromStatus,
+            to_stage: newStatus,
+            performed_by: user?.email || '',
+            activity_date: new Date().toISOString()
+          }).then(() => queryClient.invalidateQueries({ queryKey: ['activities', clientId] }));
+        },
+        onError: (error) => toast.error(error.message || 'Failed to update client status')
+      }
+    );
+  };
 
   const CurrentStepComponent = steps[currentStep - 1].component;
   const progress = (currentStep / steps.length) * 100;
@@ -280,116 +352,86 @@ export default function ClientOnboarding() {
         </TabsContent>
 
         {/* Pipeline Tab */}
-        <TabsContent value="pipeline" className="space-y-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex gap-2">
-              {stages.map((stage, idx) => (
-                <div key={stage.id} className="flex items-center">
-                  <div className="text-center">
-                    <div className={cn('w-10 h-10 rounded-full flex items-center justify-center border-2 font-bold text-sm',
-                      stage.id === 'Active' ? 'bg-green-500 border-green-600 text-white' :
-                      stage.id === 'Client' ? 'bg-blue-500 border-blue-600 text-white' :
-                      stage.id === 'Prospect' ? 'bg-yellow-500 border-yellow-600 text-white' :
-                      'bg-slate-500 border-slate-600 text-white'
-                    )}>
-                      {idx + 1}
-                    </div>
-                    <p className="text-xs font-semibold mt-1">{stage.label}</p>
-                  </div>
-                  {idx < stages.length - 1 && <ArrowRight className="w-4 h-4 text-slate-400 mx-2" />}
-                </div>
-              ))}
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-navy">{clients.length}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
+        <TabsContent value="pipeline" className="space-y-5">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className="text-sm text-muted-foreground">Drag-and-drop clients through onboarding stages</p>
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search clients..."
+                value={pipelineSearch}
+                onChange={(e) => setPipelineSearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {clientsByStage.map(stageData => (
-              <div key={stageData.id} className={cn('rounded-lg border-2 p-4 min-h-[500px]', stageData.color)}>
-                <h3 className="font-bold text-navy mb-4">{stageData.label} ({stageData.clients.length})</h3>
-
-                <div className="space-y-3">
-                  {stageData.clients.length === 0 ? (
-                    <p className="text-center text-sm text-muted-foreground py-8">No clients</p>
-                  ) : (
-                    stageData.clients.map(client => {
-                      const clientDocs = documents.filter(d => d.client_id === client.id);
-                      const clientRetainer = retainers.find(r => r.client_id === client.id);
-
-                      return (
-                        <Card key={client.id} className="shadow-sm hover:shadow-md transition-shadow">
-                          <CardContent className="p-3">
-                            <div className="flex items-start gap-2 mb-2">
-                              {client.client_type === 'Business' ? <Building2 className="w-4 h-4" /> : <User className="w-4 h-4" />}
-                              <div className="flex-1 min-w-0">
-                                <h4 className="font-semibold text-sm truncate">{client.legal_name}</h4>
-                                <p className="text-xs text-muted-foreground truncate">{client.primary_email}</p>
-                              </div>
-                            </div>
-
-                            <div className="space-y-1 mb-3 text-xs">
-                              <div className="flex items-center gap-2">
-                                <FileText className="w-3 h-3" />
-                                <span>Docs: {clientDocs.length}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="w-3 h-3" />
-                                <span>Retainer: {clientRetainer?.status || 'None'}</span>
-                              </div>
-                            </div>
-
-                            {stageData.id !== 'Active' && (
-                              <Button
-                                onClick={() => {
-                                  const nextStageIdx = stages.findIndex(s => s.id === stageData.id) + 1;
-                                  if (nextStageIdx < stages.length) {
-                                    updateClientMutation.mutate({ id: client.id, status: stages[nextStageIdx].id });
-                                  }
-                                }}
-                                size="sm"
-                                variant="outline"
-                                className="w-full text-xs"
-                              >
-                                Move to {stages[stages.findIndex(s => s.id === stageData.id) + 1]?.label}
-                              </Button>
-                            )}
-                          </CardContent>
-                        </Card>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 mt-6">
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-2xl font-bold text-navy">{documents.length}</p>
-                <p className="text-sm text-muted-foreground">Documents</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card className="border-none shadow-sm">
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Total Clients</p>
+                <p className="text-2xl font-bold text-navy">{clients.length}</p>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="pt-6">
+            <Card className="border-none shadow-sm">
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Active</p>
+                <p className="text-2xl font-bold text-emerald-600">
+                  {clientsByStage.find(s => s.id === 'Active')?.clients.length || 0}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="border-none shadow-sm">
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Documents Received</p>
+                <p className="text-2xl font-bold text-navy">{documents.length}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-none shadow-sm">
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs text-muted-foreground">Active Retainers</p>
                 <p className="text-2xl font-bold text-navy">
                   {retainers.filter(r => r.status === 'active' || r.status === 'signed').length}
                 </p>
-                <p className="text-sm text-muted-foreground">Active Retainers</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-2xl font-bold text-navy">
-                  {clients.length > 0 ? Math.round((clientsByStage.find(s => s.id === 'Active').clients.length / clients.length) * 100) : 0}%
-                </p>
-                <p className="text-sm text-muted-foreground">Completion Rate</p>
               </CardContent>
             </Card>
           </div>
+
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {clientsByStage.map(stageData => (
+                <Droppable key={stageData.id} droppableId={stageData.id}>
+                  {(provided, snapshot) => (
+                    <div ref={provided.innerRef} {...provided.droppableProps}>
+                      <ClientColumn stage={stageData.label} count={stageData.clients.length} isOver={snapshot.isDraggingOver}>
+                        {stageData.clients.length === 0 ? (
+                          <p className="text-center text-sm text-muted-foreground py-8">No clients</p>
+                        ) : (
+                          stageData.clients.map((client, index) => (
+                            <Draggable key={client.id} draggableId={client.id} index={index}>
+                              {(dragProvided, dragSnapshot) => (
+                                <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} {...dragProvided.dragHandleProps}>
+                                  <ClientCard
+                                    client={client}
+                                    completionPct={checklistCompletionForClient(client.id)}
+                                    filingCount={serviceFilings.filter(f => f.client_id === client.id).length}
+                                    assignedStaffName={staffUsers.find(u => u.email === client.assigned_to)?.full_name}
+                                    isDragging={dragSnapshot.isDragging}
+                                    onClick={() => window.open(`${createPageUrl('ClientProfile')}?client=${client.id}`, '_blank')}
+                                  />
+                                </div>
+                              )}
+                            </Draggable>
+                          ))
+                        )}
+                        {provided.placeholder}
+                      </ClientColumn>
+                    </div>
+                  )}
+                </Droppable>
+              ))}
+            </div>
+          </DragDropContext>
         </TabsContent>
       </Tabs>
     </div>

@@ -275,13 +275,15 @@ export default function TeamTaskDashboard() {
                                 {task.client_id && (
                                   <div className="flex items-center gap-2 text-xs">
                                     <Building2 className="w-3 h-3 text-muted-foreground" />
+                                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Client:</span>
                                     <span className="font-medium truncate">{getClientName(task.client_id)}</span>
                                   </div>
                                 )}
 
-                                {task.assigned_to && selectedUser === 'all' && (
+                                {task.assigned_to && (
                                   <div className="flex items-center gap-2 text-xs">
                                     <User className="w-3 h-3 text-muted-foreground" />
+                                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Assigned to:</span>
                                     <span className="truncate">
                                       {allUsers.find(u => u.email === task.assigned_to)?.full_name || task.assigned_to}
                                     </span>

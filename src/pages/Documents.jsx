@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/apiClient';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,16 +10,35 @@ import { createPageUrl } from '@/utils';
 import DocumentCard from '../components/documents/DocumentCard';
 import DocumentUploader from '../components/documents/DocumentUploader';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { toast } from 'sonner';
 
 export default function Documents() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [showUploader, setShowUploader] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: documents = [] } = useQuery({
     queryKey: ['documents'],
     queryFn: () => api.entities.Document.list()
   });
+
+  const deleteDocumentMutation = useMutation({
+    mutationFn: (id) => api.entities.Document.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      toast.success('Document deleted');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to delete document');
+    }
+  });
+
+  const handleDelete = (document) => {
+    if (window.confirm(`Delete "${document.document_name}"? This cannot be undone.`)) {
+      deleteDocumentMutation.mutate(document.id);
+    }
+  };
 
   const { data: clients = [] } = useQuery({
     queryKey: ['clients'],
@@ -93,6 +112,7 @@ export default function Documents() {
               document={doc}
               clientName={client?.legal_name || 'Unknown Client'}
               onView={(document) => window.open(document.file_url, '_blank')}
+              onDelete={handleDelete}
             />
           );
         })}

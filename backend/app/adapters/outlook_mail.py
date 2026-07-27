@@ -6,6 +6,7 @@ Graph/SMTP sender, which is the platform's own fixed identity used only for
 signup verification and other transactional mail.
 """
 
+import base64
 import datetime
 
 import httpx
@@ -57,21 +58,33 @@ async def _get_access_token(account: ConnectedEmailAccount, db: AsyncSession) ->
 async def send_via_outlook(
     account: ConnectedEmailAccount,
     db: AsyncSession,
-    to: str,
+    to: str | list[str],
     subject: str,
     body: str,
     html: bool = False,
     cc: list[str] | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     access_token = await _get_access_token(account, db)
+    to_list = [to] if isinstance(to, str) else to
 
     message = {
         "subject": subject,
         "body": {"contentType": "HTML" if html else "Text", "content": body},
-        "toRecipients": [{"emailAddress": {"address": to}}],
+        "toRecipients": [{"emailAddress": {"address": addr}} for addr in to_list],
     }
     if cc:
         message["ccRecipients"] = [{"emailAddress": {"address": addr}} for addr in cc]
+    if attachments:
+        message["attachments"] = [
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": a["name"],
+                "contentType": a.get("content_type") or "application/octet-stream",
+                "contentBytes": base64.b64encode(a["content"]).decode("ascii"),
+            }
+            for a in attachments
+        ]
 
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(

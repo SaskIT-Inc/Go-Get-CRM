@@ -9,6 +9,7 @@ import { MessagesSquare, Plus, Send, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useCurrentUser } from '@/lib/permissions';
+import useLiveChat from '@/hooks/useLiveChat';
 
 export default function Conversations() {
   const queryClient = useQueryClient();
@@ -19,10 +20,12 @@ export default function Conversations() {
   const [newParticipants, setNewParticipants] = useState([]);
   const [draft, setDraft] = useState('');
 
+  useLiveChat();
+
   const { data: conversations = [] } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => api.entities.Conversation.list('-last_message_at'),
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   });
 
   const { data: teamMembers = [] } = useQuery({
@@ -34,7 +37,7 @@ export default function Conversations() {
     queryKey: ['messages', selectedId],
     queryFn: () => api.entities.Message.filter({ conversation_id: selectedId }),
     enabled: !!selectedId,
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   });
 
   const createConversationMutation = useMutation({
@@ -51,13 +54,26 @@ export default function Conversations() {
   });
 
   const sendMessageMutation = useMutation({
-    mutationFn: () => api.entities.Message.create({ conversation_id: selectedId, body: draft }),
+    mutationFn: (body) => api.entities.Message.create({ conversation_id: selectedId, body }),
+    onMutate: async (body) => {
+      const key = ['messages', selectedId];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (old = []) => [
+        ...old,
+        { id: `optimistic-${Date.now()}`, conversation_id: selectedId, sender_email: user?.email, body, created_date: new Date().toISOString() },
+      ]);
+      setDraft('');
+      return { previous };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['messages', selectedId] });
       api.entities.Conversation.update(selectedId, { last_message_at: new Date().toISOString() });
-      setDraft('');
     },
-    onError: (err) => toast.error(err.message || 'Failed to send'),
+    onError: (err, _body, context) => {
+      if (context?.previous) queryClient.setQueryData(['messages', selectedId], context.previous);
+      toast.error(err.message || 'Failed to send');
+    },
   });
 
   const toggleParticipant = (email) => {
@@ -68,6 +84,12 @@ export default function Conversations() {
 
   const otherStaff = teamMembers.filter((m) => m.email !== user?.email);
   const selected = conversations.find((c) => c.id === selectedId);
+
+  const nameForEmail = (email) =>
+    teamMembers.find((m) => m.email === email)?.full_name || email;
+
+  const displayTitle = (c) =>
+    c.subject || (c.participant_emails || []).filter((e) => e !== user?.email).map(nameForEmail).join(', ') || 'Conversation';
 
   return (
     <div className="p-8 max-w-6xl mx-auto h-[calc(100vh-70px)]">
@@ -84,7 +106,7 @@ export default function Conversations() {
             {composing && (
               <div className="p-3 mb-2 border rounded-lg bg-slate-50 space-y-2">
                 <Input
-                  placeholder="Subject"
+                  placeholder="Name this conversation (optional)"
                   value={newSubject}
                   onChange={(e) => setNewSubject(e.target.value)}
                 />
@@ -103,7 +125,7 @@ export default function Conversations() {
                 <div className="flex gap-2">
                   <Button
                     size="sm"
-                    disabled={!newSubject || newParticipants.length === 0 || createConversationMutation.isPending}
+                    disabled={newParticipants.length === 0 || createConversationMutation.isPending}
                     onClick={() => createConversationMutation.mutate()}
                   >
                     Start
@@ -127,9 +149,9 @@ export default function Conversations() {
                   selectedId === c.id ? 'bg-primary text-white' : 'hover:bg-slate-50'
                 )}
               >
-                <p className="font-semibold truncate">{c.subject || '(no subject)'}</p>
+                <p className="font-semibold truncate">{displayTitle(c)}</p>
                 <p className={cn('text-xs truncate', selectedId === c.id ? 'text-white/80' : 'text-slate-400')}>
-                  {(c.participant_emails || []).join(', ')}
+                  {(c.participant_emails || []).filter((e) => e !== user?.email).map(nameForEmail).join(', ')}
                 </p>
               </button>
             ))}
@@ -143,7 +165,7 @@ export default function Conversations() {
             </CardContent>
           ) : (
             <>
-              <div className="p-4 border-b font-semibold text-navy">{selected.subject}</div>
+              <div className="p-4 border-b font-semibold text-navy">{displayTitle(selected)}</div>
               <CardContent className="flex-1 overflow-y-auto space-y-3 py-4">
                 {messages.map((m) => (
                   <div
@@ -156,7 +178,7 @@ export default function Conversations() {
                     )}
                   >
                     {m.sender_email !== user?.email && (
-                      <p className="text-xs font-semibold mb-1 opacity-70">{m.sender_email}</p>
+                      <p className="text-xs font-semibold mb-1 opacity-70">{nameForEmail(m.sender_email)}</p>
                     )}
                     {m.body}
                   </div>
@@ -171,7 +193,7 @@ export default function Conversations() {
                   className="resize-none"
                 />
                 <Button
-                  onClick={() => sendMessageMutation.mutate()}
+                  onClick={() => sendMessageMutation.mutate(draft)}
                   disabled={!draft.trim() || sendMessageMutation.isPending}
                   className="gap-1"
                 >

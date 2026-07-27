@@ -5,16 +5,20 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Upload, FileText, CheckCircle, Clock, AlertCircle, PenTool } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Clock, AlertCircle, PenTool, MessageSquare, Send, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import DocumentUploadModal from '@/components/client/DocumentUploadModal';
 import SignatureModal from '@/components/client/SignatureModal';
+import useLiveChat from '@/hooks/useLiveChat';
 
 export default function ClientPortal() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [selectedFiling, setSelectedFiling] = useState(null);
   const [selectedDocument, setSelectedDocument] = useState(null);
+  const [messageText, setMessageText] = useState('');
   const queryClient = useQueryClient();
 
   const { data: user } = useQuery({
@@ -22,11 +26,15 @@ export default function ClientPortal() {
     queryFn: () => api.auth.me()
   });
 
-  // Get client record for current user
+  // The backend already scopes a client-role user's Client.list() to just
+  // their own row (generic.py's _authorize_client, matched case-insensitively
+  // against their login email) — no need to also filter client-side by
+  // primary_email here, which used to require an exact case match and could
+  // return nothing if that ever drifted from the login email's casing.
   const { data: client } = useQuery({
     queryKey: ['myClient'],
     queryFn: async () => {
-      const clients = await api.entities.Client.filter({ primary_email: user.email });
+      const clients = await api.entities.Client.list();
       return clients[0];
     },
     enabled: !!user
@@ -54,6 +62,36 @@ export default function ClientPortal() {
     queryKey: ['mySignatures'],
     queryFn: () => api.entities.Signature.filter({ client_id: client.id }),
     enabled: !!client
+  });
+
+  useLiveChat();
+
+  const { data: communications = [] } = useQuery({
+    queryKey: ['communications', client?.id],
+    queryFn: () => api.entities.Communication.filter({ client_id: client.id }),
+    enabled: !!client,
+    refetchInterval: 5000
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: (text) => api.entities.Communication.create({ notes: text }),
+    onMutate: async (text) => {
+      const key = ['communications', client?.id];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (old = []) => [
+        { id: `optimistic-${Date.now()}`, client_id: client?.id, communication_type: 'Portal Message', notes: text, sender_type: 'client', communication_date: new Date().toISOString() },
+        ...old,
+      ]);
+      setMessageText('');
+      return { previous };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['communications', client?.id] });
+    },
+    onError: (error, _text, context) => {
+      if (context?.previous) queryClient.setQueryData(['communications', client?.id], context.previous);
+    }
   });
 
   const statusColors = {
@@ -103,6 +141,10 @@ export default function ClientPortal() {
           <TabsTrigger value="filings">My Filings</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="signatures">Signatures</TabsTrigger>
+          <TabsTrigger value="messages" className="gap-1.5">
+            <MessageSquare className="w-3.5 h-3.5" />
+            Messages
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="filings" className="space-y-4">
@@ -236,6 +278,64 @@ export default function ClientPortal() {
               </Card>
             ))}
           </div>
+        </TabsContent>
+
+        <TabsContent value="messages">
+          <Card className="border-none shadow-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" />Messages</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Send a message to your firm — they'll see it and can reply right here.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1 mb-4">
+                {communications.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">No messages yet</p>
+                ) : [...communications].reverse().map(comm => {
+                  const fromMe = comm.sender_type === 'client';
+                  return (
+                    <div key={comm.id} className={cn('flex', fromMe ? 'justify-end' : 'justify-start')}>
+                      <div className={cn(
+                        'max-w-[75%] rounded-lg px-4 py-2.5',
+                        fromMe ? 'bg-navy text-white' : 'bg-slate-100 text-slate-800'
+                      )}>
+                        {comm.communication_type && comm.communication_type !== 'Portal Message' && (
+                          <p className={cn('text-xs font-semibold mb-1', fromMe ? 'text-white/70' : 'text-slate-500')}>
+                            {comm.subject || comm.communication_type}
+                          </p>
+                        )}
+                        {comm.notes && <p className="text-sm whitespace-pre-wrap">{comm.notes}</p>}
+                        <p className={cn('text-[10px] mt-1', fromMe ? 'text-white/60' : 'text-slate-400')}>
+                          {fromMe ? 'You' : 'Your firm'}
+                          {' · '}
+                          {new Date(comm.communication_date).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex gap-2 pt-3 border-t">
+                <Textarea
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder="Type a message..."
+                  rows={2}
+                  className="flex-1"
+                />
+                <Button
+                  className="self-end gap-2"
+                  disabled={!messageText.trim() || sendMessageMutation.isPending}
+                  onClick={() => sendMessageMutation.mutate(messageText.trim())}
+                >
+                  {sendMessageMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Send
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

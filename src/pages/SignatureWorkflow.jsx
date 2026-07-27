@@ -58,6 +58,7 @@ export default function SignatureWorkflow() {
       const signature = await api.entities.Signature.create({
         document_id: data.document_id,
         service_filing_id: data.service_filing_id,
+        client_id: data.client_id,
         requested_from_email: data.email,
         status: 'pending',
         request_date: new Date().toISOString(),
@@ -248,6 +249,7 @@ export default function SignatureWorkflow() {
                   onClick={() => requestSignatureMutation.mutate({
                     document_id: selectedDocument,
                     service_filing_id: selectedFiling,
+                    client_id: selectedFilingData?.client_id,
                     email: signatureEmail,
                     message,
                     documentName: selectedDocData?.document_name || selectedDocData?.file_name

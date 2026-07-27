@@ -28,7 +28,6 @@ import ServiceCatalog from './pages/ServiceCatalog';
 import SignatureWorkflow from './pages/SignatureWorkflow';
 import ComplianceTracking from './pages/ComplianceTracking';
 import RetainerManagement from './pages/RetainerManagement';
-import ClientOnboardingPipeline from './pages/ClientOnboardingPipeline';
 import ExecutiveAnalytics from './pages/ExecutiveAnalytics';
 import EmailTemplates from './pages/EmailTemplates';
 import CentralCalendar from './pages/CentralCalendar';
@@ -94,6 +93,25 @@ const AuthenticatedApp = () => {
   const isClient = user?.role === 'client';
   const HomePage = isClient ? ClientPortalPage : MainPage;
   const homePageKey = isClient ? 'ClientPortal' : mainPageKey;
+
+  // A client's entire surface is the one ClientPortal page (see Layout.jsx's
+  // CLIENT_NAVIGATION — there's nothing else in their nav to link to). The
+  // backend already 403s a client on every staff-only entity/module, but
+  // without this guard a client who types or bookmarks a staff URL (e.g.
+  // /Clients, /Settings) would still get a rendered — just broken and
+  // data-less — staff page instead of being sent back to their own portal.
+  if (isClient) {
+    return (
+      <Routes>
+        <Route path="/" element={
+          <LayoutWrapper currentPageName="ClientPortal">
+            <ClientPortalPage />
+          </LayoutWrapper>
+        } />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
+  }
 
   // Render the main app
   return (
@@ -192,11 +210,6 @@ const AuthenticatedApp = () => {
       <Route path="/RetainerManagement" element={
         <LayoutWrapper currentPageName="RetainerManagement">
           <RetainerManagement />
-        </LayoutWrapper>
-      } />
-      <Route path="/ClientOnboardingPipeline" element={
-        <LayoutWrapper currentPageName="ClientOnboardingPipeline">
-          <ClientOnboardingPipeline />
         </LayoutWrapper>
       } />
       <Route path="/ExecutiveAnalytics" element={

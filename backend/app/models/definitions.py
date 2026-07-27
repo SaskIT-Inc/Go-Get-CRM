@@ -326,6 +326,10 @@ ENTITY_DEFINITIONS = {
         "fields": {
             "document_id": S,
             "service_filing_id": S,
+            # Denormalized (same reasoning as Document/DocumentComment's own
+            # client_id) so a client-role user's read/create access can be
+            # scoped directly, without a join through ServiceFiling.
+            "client_id": S,
             "signer_email": S,
             "signer_name": S,
             "signature_data": T,
@@ -412,10 +416,17 @@ ENTITY_DEFINITIONS = {
         "table": "communications",
         "fields": {
             "client_id": (S, {"nullable": False}),
-            "communication_type": (S, {"default": "Note"}),  # Call | Email | Meeting | Note
+            "communication_type": (S, {"default": "Note"}),  # Call | Email | Meeting | Note | Portal Message
             "subject": S,
             "notes": T,
             "communication_date": (S, {"nullable": False}),
+            # Two-way thread support (Client Profile "Comms" tab + Client
+            # Portal "Messages" tab share these rows): author_email/sender_type
+            # are stamped server-side in routers/generic.py's create_entity,
+            # never client-supplied, so a client can't post as staff or vice
+            # versa.
+            "author_email": S,
+            "sender_type": (S, {"default": "staff"}),  # "staff" | "client"
         },
     },
     "AutomationRulesMaster": {

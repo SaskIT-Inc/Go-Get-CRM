@@ -27,6 +27,7 @@ import {
   Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
+import MultiEmailInput from '@/components/email/MultiEmailInput';
 
 // Email templates for quick insertion
 const emailTemplates = [
@@ -113,8 +114,8 @@ export default function Email() {
   
   // Email compose state
   const [emailForm, setEmailForm] = useState({
-    to: '',
-    cc: '',
+    to: [],
+    cc: [],
     subject: '',
     body: '',
     attachments: []
@@ -148,14 +149,16 @@ export default function Email() {
     mutationFn: async (emailData) => {
       await api.integrations.Core.SendEmail({
         to: emailData.to,
+        cc: emailData.cc,
         subject: emailData.subject,
         body: emailData.body,
+        attachments: emailData.attachments,
         from_name: user?.full_name || 'GoGet CRM'
       });
     },
     onSuccess: () => {
       toast.success('Email sent successfully!');
-      setEmailForm({ to: '', cc: '', subject: '', body: '', attachments: [] });
+      setEmailForm({ to: [], cc: [], subject: '', body: '', attachments: [] });
     },
     onError: (error) => {
       toast.error('Failed to send email: ' + error.message);
@@ -165,12 +168,13 @@ export default function Email() {
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async (draftData) => {
-      const client = clients.find(c => c.primary_email === draftData.to);
+      const primaryTo = draftData.to?.[0] || '';
+      const client = clients.find(c => c.primary_email === primaryTo);
       return await api.entities.EmailDraft.create({
         task_id: 'manual',
         client_id: client?.id || '',
-        client_name: client?.legal_name || draftData.to || 'Unknown',
-        client_email: draftData.to,
+        client_name: client?.legal_name || primaryTo || 'Unknown',
+        client_email: primaryTo,
         subject_line: draftData.subject,
         email_body: draftData.body,
         status: 'draft',
@@ -222,16 +226,16 @@ export default function Email() {
   };
 
   const handleSend = () => {
-    if (!emailForm.to || !emailForm.subject || !emailForm.body) {
+    if (emailForm.to.length === 0 || !emailForm.subject || !emailForm.body) {
       toast.error('Please fill in recipient, subject, and message');
       return;
     }
-    
+
     sendEmailMutation.mutate(emailForm);
   };
 
   const handleSaveDraft = () => {
-    if (!emailForm.to || !emailForm.subject) {
+    if (emailForm.to.length === 0 || !emailForm.subject) {
       toast.error('Please provide recipient and subject');
       return;
     }
@@ -240,8 +244,8 @@ export default function Email() {
 
   const loadDraft = (draft) => {
     setEmailForm({
-      to: draft.client_email,
-      cc: '',
+      to: draft.client_email ? [draft.client_email] : [],
+      cc: [],
       subject: draft.subject_line,
       body: draft.email_body,
       attachments: []
@@ -341,26 +345,22 @@ export default function Email() {
               {/* To Field */}
               <div>
                 <Label htmlFor="to">To *</Label>
-                <Input
+                <MultiEmailInput
                   id="to"
-                  type="email"
                   placeholder="client@example.com"
                   value={emailForm.to}
-                  onChange={(e) => setEmailForm({ ...emailForm, to: e.target.value })}
-                  className="mt-1"
+                  onChange={(to) => setEmailForm({ ...emailForm, to })}
                 />
               </div>
 
               {/* CC Field */}
               <div>
                 <Label htmlFor="cc">CC (optional)</Label>
-                <Input
+                <MultiEmailInput
                   id="cc"
-                  type="email"
                   placeholder="cc@example.com"
                   value={emailForm.cc}
-                  onChange={(e) => setEmailForm({ ...emailForm, cc: e.target.value })}
-                  className="mt-1"
+                  onChange={(cc) => setEmailForm({ ...emailForm, cc })}
                 />
               </div>
 

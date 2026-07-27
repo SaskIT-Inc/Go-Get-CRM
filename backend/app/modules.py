@@ -115,9 +115,10 @@ MODULES = {
     "conversations": {
         "label": "Conversations",
         "entities": {"Conversation", "Message"},
-        # Not implied: a Director must be explicitly granted access to read
-        # other staff's conversations, same as anyone else.
-        "director_implied": False,
+        # Live internal chat: every staff member (Director included) can
+        # always reach it, same as every other module — a Director isn't
+        # excluded from the firm's own chat by default.
+        "director_implied": True,
     },
     "notifications": {
         "label": "Notifications",
@@ -142,8 +143,9 @@ assert not _duplicates, f"modules.py: entities mapped to more than one module: {
 # permissions matrix at all — clients never get a matrix).
 CLIENT_READ_ENTITIES = {
     "Client", "ServiceFiling", "FilingPipeline", "Task", "Document", "DocumentChecklist", "DocumentComment",
+    "Communication", "Signature",
 }
-CLIENT_CREATE_ENTITIES = {"Document", "DocumentComment"}
+CLIENT_CREATE_ENTITIES = {"Document", "DocumentComment", "Communication", "Signature"}
 
 
 def normalize_matrix(raw: dict | None) -> dict[str, list[str]]:

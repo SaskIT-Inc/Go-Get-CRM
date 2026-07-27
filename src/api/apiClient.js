@@ -144,8 +144,8 @@ export const api = {
         form.append('file', file);
         return request('/api/files', { method: 'POST', body: form, isForm: true });
       },
-      SendEmail: ({ to, subject, body, html, cc }) =>
-        request('/api/integrations/send-email', { method: 'POST', body: { to, subject, body, html, cc } }),
+      SendEmail: ({ to, subject, body, html, cc, attachments }) =>
+        request('/api/integrations/send-email', { method: 'POST', body: { to, subject, body, html, cc, attachments } }),
     },
     getConnectedAccounts: () => request('/api/integrations/connected-accounts'),
     getGoogleConnectUrl: () => request('/api/integrations/google/connect'),

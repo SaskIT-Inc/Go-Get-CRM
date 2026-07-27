@@ -8,7 +8,9 @@ SMTP outright (see .env.example). Falls back to plain SMTP only when Graph
 isn't configured.
 """
 
+import base64
 import logging
+import mimetypes
 import time
 
 import aiosmtplib
@@ -54,17 +56,41 @@ async def _get_graph_token() -> str:
     return _graph_token
 
 
+def _graph_attachments(attachments: list[dict] | None) -> list[dict] | None:
+    if not attachments:
+        return None
+    return [
+        {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": a["name"],
+            "contentType": a.get("content_type") or "application/octet-stream",
+            "contentBytes": base64.b64encode(a["content"]).decode("ascii"),
+        }
+        for a in attachments
+    ]
+
+
 async def _send_via_graph(
-    to: str, subject: str, body: str, html: bool, cc: list[str] | None, sender: str
+    to: str | list[str],
+    subject: str,
+    body: str,
+    html: bool,
+    cc: list[str] | None,
+    sender: str,
+    attachments: list[dict] | None = None,
 ) -> None:
     token = await _get_graph_token()
+    to_list = [to] if isinstance(to, str) else to
     message: dict = {
         "subject": subject,
         "body": {"contentType": "HTML" if html else "Text", "content": body},
-        "toRecipients": [{"emailAddress": {"address": to}}],
+        "toRecipients": [{"emailAddress": {"address": addr}} for addr in to_list],
     }
     if cc:
         message["ccRecipients"] = [{"emailAddress": {"address": addr}} for addr in cc]
+    graph_attachments = _graph_attachments(attachments)
+    if graph_attachments:
+        message["attachments"] = graph_attachments
 
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
@@ -76,17 +102,18 @@ async def _send_via_graph(
 
 
 async def send_email(
-    to: str,
+    to: str | list[str],
     subject: str,
     body: str,
     html: bool = False,
     cc: list[str] | None = None,
     from_email: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> None:
     sender = from_email or settings.smtp_from
 
     if settings.graph_configured:
-        await _send_via_graph(to, subject, body, html=html, cc=cc, sender=sender)
+        await _send_via_graph(to, subject, body, html=html, cc=cc, sender=sender, attachments=attachments)
         return
 
     if not settings.smtp_host:
@@ -99,7 +126,8 @@ async def send_email(
 
     message = EmailMessage()
     message["From"] = formataddr((settings.smtp_from_name, sender))
-    message["To"] = to
+    to_list = [to] if isinstance(to, str) else to
+    message["To"] = ", ".join(to_list)
     if cc:
         message["Cc"] = ", ".join(cc)
     message["Subject"] = subject
@@ -107,6 +135,11 @@ async def send_email(
         message.add_alternative(body, subtype="html")
     else:
         message.set_content(body)
+
+    for a in attachments or []:
+        content_type = a.get("content_type") or mimetypes.guess_type(a["name"])[0] or "application/octet-stream"
+        maintype, _, subtype = content_type.partition("/")
+        message.add_attachment(a["content"], maintype=maintype or "application", subtype=subtype or "octet-stream", filename=a["name"])
 
     await aiosmtplib.send(
         message,

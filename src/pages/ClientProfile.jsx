@@ -14,10 +14,12 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   User, Building2, Mail, Phone, MapPin, FileText, DollarSign,
   Calendar, Edit, Save, X, Search, MessageSquare,
-  AlertTriangle, Activity, Globe, Lock, Plus, Trash2, RefreshCw
+  AlertTriangle, Activity, Globe, Lock, Plus, Trash2, RefreshCw, KeyRound, CheckCircle2, Loader2, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useCurrentUser, INVITABLE } from '@/lib/permissions';
+import useLiveChat from '@/hooks/useLiveChat';
 import AddServiceModal from '@/components/client/AddServiceModal';
 import LogCommunicationModal from '@/components/client/LogCommunicationModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -77,6 +79,7 @@ export default function ClientProfile() {
   const [editingFiling, setEditingFiling] = useState(null);
   const [showLogCommunication, setShowLogCommunication] = useState(false);
   const [showAddInvoice, setShowAddInvoice] = useState(false);
+  const [messageText, setMessageText] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -94,9 +97,12 @@ export default function ClientProfile() {
   const { data: checklists = [] } = useQuery({ queryKey: ['checklists', selectedClientId], queryFn: () => api.entities.DocumentChecklist.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
   const { data: complianceAlerts = [] } = useQuery({ queryKey: ['complianceAlerts', selectedClientId], queryFn: () => api.entities.ComplianceAlert.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
   const { data: activities = [] } = useQuery({ queryKey: ['activities', selectedClientId], queryFn: () => api.entities.Activity.filter({ client_id: selectedClientId }, '-activity_date'), enabled: !!selectedClientId });
-  const { data: communications = [] } = useQuery({ queryKey: ['communications', selectedClientId], queryFn: () => api.entities.Communication.filter({ client_id: selectedClientId }, '-communication_date'), enabled: !!selectedClientId });
+  useLiveChat();
+  const { data: communications = [] } = useQuery({ queryKey: ['communications', selectedClientId], queryFn: () => api.entities.Communication.filter({ client_id: selectedClientId }, '-communication_date'), enabled: !!selectedClientId, refetchInterval: 5000 });
   const { data: packages = [] } = useQuery({ queryKey: ['packages'], queryFn: () => api.entities.Package.list() });
   const activePackages = packages.filter((p) => p.is_active !== false);
+  const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: () => api.entities.User.list() });
+  const { data: actor } = useCurrentUser();
 
   const updateClientMutation = useMutation({
     mutationFn: ({ id, data }) => api.entities.Client.update(id, data),
@@ -135,7 +141,67 @@ export default function ClientProfile() {
     onError: (error) => toast.error('Failed to remove filing: ' + error.message)
   });
 
+  const inviteToPortalMutation = useMutation({
+    mutationFn: (data) => api.users.inviteUser(data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success(`Portal invitation sent to ${data.email}`);
+      if (data.accept_url) {
+        toast.info(`No email set up yet — share this invite link manually: ${data.accept_url}`);
+      }
+    },
+    onError: (error) => toast.error(`Failed to invite: ${error.message}`)
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: (text) => api.entities.Communication.create({
+      client_id: selectedClientId,
+      communication_type: 'Portal Message',
+      notes: text,
+      communication_date: new Date().toISOString(),
+    }),
+    onMutate: async (text) => {
+      const key = ['communications', selectedClientId];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (old = []) => [
+        { id: `optimistic-${Date.now()}`, client_id: selectedClientId, communication_type: 'Portal Message', notes: text, sender_type: 'staff', author_email: actor?.email, communication_date: new Date().toISOString() },
+        ...old,
+      ]);
+      setMessageText('');
+      return { previous };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['communications', selectedClientId] });
+    },
+    onError: (error, _text, context) => {
+      if (context?.previous) queryClient.setQueryData(['communications', selectedClientId], context.previous);
+      toast.error(`Failed to send: ${error.message}`);
+    }
+  });
+
   const selectedClient = clients.find(c => c.id === selectedClientId);
+  // A client's portal login is just a User row whose email matches their
+  // Client record (see backend/app/routers/generic.py's _authorize_client) —
+  // there's no separate "linked" flag, so this is the same lookup the
+  // backend itself uses to decide portal access.
+  const portalUser = selectedClient?.primary_email
+    ? users.find(
+        (u) => u.role === 'client' && u.email?.toLowerCase() === selectedClient.primary_email.toLowerCase()
+      )
+    : null;
+  const canInviteToPortal = INVITABLE[actor?.role]?.includes('client');
+  // Mirrors backend/app/routers/generic.py's _communication_scope_filter:
+  // only the client's assigned team member, or admin/director, can chat with
+  // them — everyone else's Communication query silently comes back empty
+  // rather than 403ing, so this is purely to explain that empty state.
+  const assignedStaffName = selectedClient?.assigned_to
+    ? users.find((u) => u.email?.toLowerCase() === selectedClient.assigned_to.toLowerCase())?.full_name || selectedClient.assigned_to
+    : null;
+  const canChatWithClient =
+    actor?.role === 'director' ||
+    actor?.role === 'admin' ||
+    (!!selectedClient?.assigned_to && selectedClient.assigned_to.toLowerCase() === actor?.email?.toLowerCase());
 
   const startEdit = (section) => {
     const data = { ...selectedClient };
@@ -355,6 +421,46 @@ export default function ClientProfile() {
                     <FieldRow label="Preferred Contact" value={selectedClient?.preferred_contact_method} />
                     {selectedClient?.notes && <div><p className="text-xs text-muted-foreground mb-0.5">Notes</p><p className="text-sm text-slate-700">{selectedClient.notes}</p></div>}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Client Portal Access */}
+            <Card className="border-none shadow-md md:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><KeyRound className="w-5 h-5" />Client Portal Access</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {portalUser ? (
+                  <div className="flex items-center gap-2 text-sm text-green-700">
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                    Portal access active — logs in as <span className="font-medium">{portalUser.email}</span>
+                    {portalUser.is_active === false && (
+                      <Badge variant="outline" className="ml-1 border-red-300 text-red-600">Deactivated</Badge>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <p className="text-sm text-muted-foreground">
+                      This client has no portal login yet — they can't sign in to upload documents or view their filings.
+                    </p>
+                    <Button
+                      size="sm"
+                      className="gap-2 flex-shrink-0"
+                      disabled={!canInviteToPortal || !selectedClient?.primary_email || inviteToPortalMutation.isPending}
+                      onClick={() => inviteToPortalMutation.mutate({
+                        email: selectedClient.primary_email,
+                        full_name: selectedClient.primary_contact_name || selectedClient.legal_name,
+                        role: 'client',
+                      })}
+                    >
+                      {inviteToPortalMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                      Invite to Client Portal
+                    </Button>
+                  </div>
+                )}
+                {!portalUser && !selectedClient?.primary_email && (
+                  <p className="text-xs text-amber-600 mt-2">Add a Business Email above first — the invite is sent to it.</p>
                 )}
               </CardContent>
             </Card>
@@ -809,26 +915,73 @@ export default function ClientProfile() {
         <TabsContent value="communications">
           <Card className="border-none shadow-md">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" />Communication History</CardTitle>
-              <Button size="sm" className="gap-2" onClick={() => setShowLogCommunication(true)}>
-                <Plus className="w-4 h-4" />Log Communication
+              <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" />Client Communication Thread</CardTitle>
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => setShowLogCommunication(true)}>
+                <Plus className="w-4 h-4" />Log Past Communication
               </Button>
             </CardHeader>
             <CardContent>
-              {communications.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">No communications yet</p>
-              ) : communications.map(comm => (
-                <div key={comm.id} className="p-4 border rounded-lg bg-slate-50 mb-3">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="font-semibold text-navy">{comm.subject || comm.communication_type}</p>
-                      <p className="text-xs text-muted-foreground">{comm.communication_type} · {comm.created_by}</p>
+              {!canChatWithClient ? (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4">
+                  {assignedStaffName
+                    ? `Only ${assignedStaffName} or an admin/director can message this client.`
+                    : 'This client has no assigned team member yet — only an admin/director can message them.'}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mb-4">
+                  Visible to both your team and {selectedClient?.legal_name || 'the client'} in their portal — replies show up on both sides immediately.
+                </p>
+              )}
+
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1 mb-4">
+                {communications.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">
+                    {canChatWithClient ? 'No messages yet' : 'No messages to show'}
+                  </p>
+                ) : [...communications].reverse().map(comm => {
+                  const fromClient = comm.sender_type === 'client';
+                  return (
+                    <div key={comm.id} className={cn('flex', fromClient ? 'justify-start' : 'justify-end')}>
+                      <div className={cn(
+                        'max-w-[75%] rounded-lg px-4 py-2.5',
+                        fromClient ? 'bg-slate-100 text-slate-800' : 'bg-navy text-white'
+                      )}>
+                        {comm.communication_type && comm.communication_type !== 'Portal Message' && (
+                          <p className={cn('text-xs font-semibold mb-1', fromClient ? 'text-slate-500' : 'text-white/70')}>
+                            {comm.subject || comm.communication_type}
+                          </p>
+                        )}
+                        {comm.notes && <p className="text-sm whitespace-pre-wrap">{comm.notes}</p>}
+                        <p className={cn('text-[10px] mt-1', fromClient ? 'text-slate-400' : 'text-white/60')}>
+                          {fromClient ? (selectedClient?.legal_name || 'Client') : (comm.author_email || comm.created_by || 'Staff')}
+                          {' · '}
+                          {new Date(comm.communication_date).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">{new Date(comm.communication_date).toLocaleDateString()}</p>
-                  </div>
-                  {comm.notes && <p className="text-sm text-slate-700">{comm.notes}</p>}
+                  );
+                })}
+              </div>
+
+              {canChatWithClient && (
+                <div className="flex gap-2 pt-3 border-t">
+                  <Textarea
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Send a message to this client..."
+                    rows={2}
+                    className="flex-1"
+                  />
+                  <Button
+                    className="self-end gap-2"
+                    disabled={!messageText.trim() || sendMessageMutation.isPending}
+                    onClick={() => sendMessageMutation.mutate(messageText.trim())}
+                  >
+                    {sendMessageMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    Send
+                  </Button>
                 </div>
-              ))}
+              )}
             </CardContent>
           </Card>
 
