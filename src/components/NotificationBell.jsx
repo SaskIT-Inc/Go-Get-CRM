@@ -3,9 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/apiClient';
 import { useCurrentUser, can } from '@/lib/permissions';
+import { toast } from 'sonner';
 import {
   Bell,
   Check,
+  CheckCheck,
   ClipboardList,
   Target,
   Building2,
@@ -14,7 +16,6 @@ import {
   FileText,
   MessageSquare,
   Clock,
-  X,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -127,12 +128,37 @@ export default function NotificationBell() {
 
   const markReadMutation = useMutation({
     mutationFn: (id) => api.entities.Notification.update(id, { is_read: true }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      const previous = queryClient.getQueryData(['notifications']);
+      queryClient.setQueryData(['notifications'], (old) =>
+        (old || []).map((n) => (n.id === id ? { ...n, is_read: true } : n))
+      );
+      return { previous };
+    },
+    onError: (error, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(['notifications'], context.previous);
+      toast.error('Failed to mark as read: ' + error.message);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
   const markAllReadMutation = useMutation({
     mutationFn: () => api.notifications.markAllRead(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      const previous = queryClient.getQueryData(['notifications']);
+      queryClient.setQueryData(['notifications'], (old) => (old || []).map((n) => ({ ...n, is_read: true })));
+      return { previous };
+    },
+    onError: (error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(['notifications'], context.previous);
+      toast.error('Failed to mark all as read: ' + error.message);
+    },
+    onSuccess: () => {
+      toast.success('All notifications marked as read');
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
   // Live, computed "due now" items — not stored Notification rows, so they
@@ -285,16 +311,20 @@ export default function NotificationBell() {
               </span>
             )}
           </div>
-          {unreadNotifCount > 0 && (
-            <button
-              type="button"
-              onClick={() => markAllReadMutation.mutate()}
-              disabled={markAllReadMutation.isPending}
-              className="text-xs font-semibold text-slate-400 hover:text-red-500 flex items-center gap-1 disabled:opacity-50"
-            >
-              <X className="w-3.5 h-3.5" /> Clear All
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => markAllReadMutation.mutate()}
+            disabled={unreadNotifCount === 0 || markAllReadMutation.isPending}
+            title={unreadNotifCount === 0 ? 'No unread notifications' : 'Mark all as read'}
+            className={cn(
+              'text-xs font-semibold flex items-center gap-1 transition-colors',
+              unreadNotifCount === 0 || markAllReadMutation.isPending
+                ? 'text-slate-300 cursor-not-allowed'
+                : 'text-slate-400 hover:text-primary'
+            )}
+          >
+            <CheckCheck className="w-3.5 h-3.5" /> Mark all as read
+          </button>
         </div>
 
         <div className="flex px-2 pt-1.5 gap-1 border-b border-slate-100 flex-shrink-0">
