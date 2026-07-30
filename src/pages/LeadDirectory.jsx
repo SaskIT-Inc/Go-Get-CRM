@@ -8,8 +8,41 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Plus, Search, Target, Mail, Phone, DollarSign, Calendar } from 'lucide-react';
+import { Plus, Search, Target, Mail, Phone, DollarSign, Calendar, CheckCircle2 } from 'lucide-react';
 import LeadDetailsModal from '../components/leads/LeadDetailsModal';
+import { COLD_STAGES, HOT_STAGES } from '@/lib/leadStages';
+
+// Directory shows Hot and Cold leads together, so its tabs need to cover the
+// union of both pipelines' real stages (leadStages.js), not a separate,
+// hand-maintained list that drifts out of sync (which is exactly what left
+// "Contacted"/"Needs Assessment"/"Negotiation"/"Won"/"Lost" here matching no
+// lead's actual stage value). DISPLAY_ORDER is just a preferred ordering —
+// any stage in either pipeline still shows up even if it's not listed here,
+// so a future change to leadStages.js can't silently drop a tab again.
+const STAGE_UNION = Array.from(new Set([...HOT_STAGES, ...COLD_STAGES]));
+const DISPLAY_ORDER = [
+  'New Lead', 'Mail Sent', '1st Follow-Up', '2nd Follow-Up', 'Replied',
+  'Appointment Set', 'Estimate Sent', 'Closed Leads', 'Lost Leads', 'False Leads',
+];
+const DIRECTORY_STAGES = [
+  ...DISPLAY_ORDER.filter((s) => STAGE_UNION.includes(s)),
+  ...STAGE_UNION.filter((s) => !DISPLAY_ORDER.includes(s)),
+];
+
+// Same palette LeadPipeline.jsx uses for these stages, so a lead reads the
+// same color everywhere in the app.
+const STAGE_COLORS = {
+  'New Lead':        'bg-slate-100 text-slate-700',
+  'Mail Sent':       'bg-blue-100 text-blue-700',
+  '1st Follow-Up':   'bg-indigo-100 text-indigo-700',
+  '2nd Follow-Up':   'bg-violet-100 text-violet-700',
+  'Replied':         'bg-green-100 text-green-700',
+  'Appointment Set': 'bg-purple-100 text-purple-700',
+  'Estimate Sent':   'bg-yellow-100 text-yellow-700',
+  'Closed Leads':    'bg-emerald-100 text-emerald-700',
+  'Lost Leads':      'bg-red-100 text-red-700',
+  'False Leads':     'bg-gray-100 text-gray-500',
+};
 
 export default function LeadDirectory() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -31,16 +64,6 @@ export default function LeadDirectory() {
     
     return matchesSearch && matchesStage;
   });
-
-  const stageColors = {
-    'New Lead': 'bg-blue-500/10 text-blue-700',
-    'Contacted': 'bg-purple-500/10 text-purple-700',
-    'Needs Assessment': 'bg-yellow/10 text-yellow-dark',
-    'Estimate Sent': 'bg-green-500/10 text-green-700',
-    'Negotiation': 'bg-orange-500/10 text-orange-700',
-    'Won': 'bg-green-600/10 text-green-800',
-    'Lost': 'bg-red/10 text-red'
-  };
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto">
@@ -77,13 +100,13 @@ export default function LeadDirectory() {
 
       {/* Filter Tabs */}
       <Tabs value={filterStage} onValueChange={setFilterStage} className="mb-6">
-        <TabsList>
+        <TabsList className="h-auto flex-wrap justify-start gap-1">
           <TabsTrigger value="all">All ({leads.length})</TabsTrigger>
-          <TabsTrigger value="New Lead">New</TabsTrigger>
-          <TabsTrigger value="Contacted">Contacted</TabsTrigger>
-          <TabsTrigger value="Needs Assessment">Assessment</TabsTrigger>
-          <TabsTrigger value="Estimate Sent">Estimate Sent</TabsTrigger>
-          <TabsTrigger value="Negotiation">Negotiation</TabsTrigger>
+          {DIRECTORY_STAGES.map((stage) => (
+            <TabsTrigger key={stage} value={stage}>
+              {stage} ({leads.filter((l) => l.stage === stage).length})
+            </TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
@@ -108,7 +131,7 @@ export default function LeadDirectory() {
                     )}
                   </div>
                 </div>
-                <Badge variant="secondary" className={stageColors[lead.stage]}>
+                <Badge variant="secondary" className={STAGE_COLORS[lead.stage]}>
                   {lead.stage}
                 </Badge>
               </div>
@@ -138,6 +161,22 @@ export default function LeadDirectory() {
                     <span className="text-xs">
                       Follow-up: {new Date(lead.next_follow_up).toLocaleDateString()}
                     </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 pt-3 border-t">
+                {lead.last_contact_date ? (
+                  <div className="flex items-center gap-2 text-xs text-green-700">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>
+                      Contacted: {new Date(lead.last_contact_date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Not contacted yet</span>
                   </div>
                 )}
               </div>
@@ -186,7 +225,7 @@ export default function LeadDirectory() {
       {selectedLead && (
         <LeadDetailsModal
           lead={selectedLead}
-          isOpen={!!selectedLead}
+          open={!!selectedLead}
           onClose={() => setSelectedLead(null)}
         />
       )}

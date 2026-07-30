@@ -26,7 +26,10 @@ function buildTemplate(lead) {
 export default function EmailLeadModal({ lead, open, onClose, onSent }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [selectedServiceIds, setSelectedServiceIds] = useState([]);
+  const [selectedPackageIds, setSelectedPackageIds] = useState([]);
+  const [otherServicesActive, setOtherServicesActive] = useState(false);
+  const [otherServiceIds, setOtherServiceIds] = useState([]);
+  const [otherServicesValue, setOtherServicesValue] = useState('');
   const [sending, setSending] = useState(false);
 
   const { data: services = [] } = useQuery({
@@ -44,12 +47,21 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       const template = buildTemplate(lead);
       setSubject(template.subject);
       setBody(template.body);
-      setSelectedServiceIds([]);
+      setSelectedPackageIds([]);
+      setOtherServicesActive(false);
+      setOtherServiceIds([]);
+      setOtherServicesValue('');
     }
   }, [open, lead]);
 
-  const toggleService = (id) => {
-    setSelectedServiceIds((prev) =>
+  const togglePackage = (id) => {
+    setSelectedPackageIds((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  };
+
+  const toggleOtherServiceId = (id) => {
+    setOtherServiceIds((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
     );
   };
@@ -80,15 +92,42 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       toast.error('Subject and message are required');
       return;
     }
-    const selectedServices = services.filter((s) => selectedServiceIds.includes(s.id));
-    const finalBody = selectedServices.length
-      ? `${body}\n\nServices we discussed:\n${selectedServices.map((s) => `- ${s.service_name}${s.notes ? ` — ${s.notes}` : ''}`).join('\n')}`
-      : body;
+
+    const selectedPackages = packages.filter((p) => selectedPackageIds.includes(p.id));
+    const selectedOtherServices = otherServicesActive
+      ? services.filter((s) => otherServiceIds.includes(s.id))
+      : [];
+
+    // Standard, consistently-spaced plain-text formatting: one blank line
+    // between the message and the reference block, a single "- " bullet per
+    // package/custom-bundle, and a two-space-indented sub-bullet for whatever
+    // it contains — never more than one blank line in a row.
+    const referenceLines = [];
+    selectedPackages.forEach((pkg) => {
+      const priceLabel = [pkg.price ? `$${pkg.price}` : null, pkg.billing_frequency].filter(Boolean).join(', ');
+      referenceLines.push(`- ${pkg.name}${priceLabel ? ` (${priceLabel})` : ''}`);
+      if (pkg.description?.trim()) referenceLines.push(`  ${pkg.description.trim()}`);
+    });
+    if (selectedOtherServices.length > 0) {
+      const valueLabel = otherServicesValue.trim() ? ` — ${otherServicesValue.trim()}` : '';
+      referenceLines.push(`- Custom Services Package${valueLabel}:`);
+      selectedOtherServices.forEach((s) => {
+        referenceLines.push(`  • ${s.service_name}${s.notes ? ` — ${s.notes}` : ''}`);
+      });
+    }
+
+    const finalBody = referenceLines.length
+      ? `${body.trim()}\n\nReference:\n${referenceLines.join('\n')}`
+      : body.trim();
+
     setSending(true);
     try {
-      await api.integrations.Core.SendEmail({ to: lead.email, subject, body: finalBody });
+      await api.integrations.Core.SendEmail({ to: lead.email, subject: subject.trim(), body: finalBody });
       toast.success(`Email sent to ${lead.email}`);
-      onSent?.({ subject, services: selectedServices.map((s) => s.service_name) });
+      onSent?.({
+        subject,
+        services: [...selectedPackages.map((p) => p.name), ...selectedOtherServices.map((s) => s.service_name)],
+      });
       onClose();
     } catch (error) {
       toast.error('Failed to send email: ' + error.message);
@@ -101,7 +140,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="w-5 h-5" />
@@ -130,27 +169,74 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
             </div>
             <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
           </div>
-          {services.length > 0 && (
-            <div className="space-y-2">
+          {(packages.length > 0 || services.length > 0) && (
+            <div className="space-y-3">
               <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Reference Services (optional — appended to the email)
+                Reference Package &amp; Services (optional — appended to the email)
               </Label>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {services.map((service) => (
+
+              <div className="flex flex-wrap gap-2">
+                {packages.map((pkg) => (
                   <button
-                    key={service.id}
+                    key={pkg.id}
                     type="button"
-                    onClick={() => toggleService(service.id)}
+                    onClick={() => togglePackage(pkg.id)}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                      selectedServiceIds.includes(service.id)
+                      selectedPackageIds.includes(pkg.id)
                         ? 'bg-navy text-white border-navy'
                         : 'bg-white text-slate-600 border-slate-300'
                     }`}
                   >
-                    {service.service_name}
+                    {pkg.name}{pkg.price ? ` — $${pkg.price}` : ''}
                   </button>
                 ))}
+                {services.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOtherServicesActive((prev) => !prev)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      otherServicesActive
+                        ? 'bg-navy text-white border-navy'
+                        : 'bg-white text-slate-600 border-slate-300'
+                    }`}
+                  >
+                    Other Services
+                  </button>
+                )}
               </div>
+
+              {otherServicesActive && (
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Pick the services to include</Label>
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                      {services.map((service) => (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => toggleOtherServiceId(service.id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                            otherServiceIds.includes(service.id)
+                              ? 'bg-navy text-white border-navy'
+                              : 'bg-white text-slate-600 border-slate-300'
+                          }`}
+                        >
+                          {service.service_name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Custom value (optional)</Label>
+                    <Input
+                      value={otherServicesValue}
+                      onChange={(e) => setOtherServicesValue(e.target.value)}
+                      placeholder="e.g. $250 or $250/mo"
+                      className="h-9 bg-white"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

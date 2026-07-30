@@ -12,8 +12,6 @@ export const COLD_STAGES = [
 
 export const HOT_STAGES = [
   'New Lead',
-  'Contacted',
-  'Email Sent',
   'Appointment Set',
   'Estimate Sent',
   'Closed Leads',

@@ -23,6 +23,7 @@ import {
   CheckCircle,
   Copy,
   Trash2,
+  Pencil,
   Link as LinkIcon,
   DollarSign,
   CalendarClock,
@@ -191,6 +192,7 @@ export default function Settings() {
   });
   const [showAddOffice, setShowAddOffice] = useState(false);
   const [newOffice, setNewOffice] = useState(EMPTY_OFFICE);
+  const [editingOfficeId, setEditingOfficeId] = useState(null);
 
   const createOfficeMutation = useMutation({
     mutationFn: (data) => api.entities.Office.create(data),
@@ -203,6 +205,18 @@ export default function Settings() {
     onError: (error) => toast.error('Failed to add office: ' + error.message),
   });
 
+  const updateOfficeMutation = useMutation({
+    mutationFn: ({ id, data }) => api.entities.Office.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['offices'] });
+      toast.success('Office updated');
+      setShowAddOffice(false);
+      setEditingOfficeId(null);
+      setNewOffice(EMPTY_OFFICE);
+    },
+    onError: (error) => toast.error('Failed to update office: ' + error.message),
+  });
+
   const deleteOfficeMutation = useMutation({
     mutationFn: (id) => api.entities.Office.delete(id),
     onSuccess: () => {
@@ -211,6 +225,26 @@ export default function Settings() {
     },
     onError: (error) => toast.error('Failed to remove office: ' + error.message),
   });
+
+  const openEditOffice = (office) => {
+    setEditingOfficeId(office.id);
+    setNewOffice({
+      name: office.name || '',
+      address: office.address || '',
+      city: office.city || '',
+      province: office.province || '',
+      phone: office.phone || '',
+      email: office.email || '',
+      is_primary: !!office.is_primary,
+    });
+    setShowAddOffice(true);
+  };
+
+  const closeOfficeDialog = () => {
+    setShowAddOffice(false);
+    setEditingOfficeId(null);
+    setNewOffice(EMPTY_OFFICE);
+  };
 
   // Packages — this firm's own pricing tiers/plans (empty until you add one;
   // deliberately never seeded with defaults, since pricing is firm-specific).
@@ -666,14 +700,23 @@ export default function Settings() {
                           </span>
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteOfficeMutation.mutate(office.id)}
-                        disabled={deleteOfficeMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEditOffice(office)}
+                        >
+                          <Pencil className="w-4 h-4 text-muted-foreground" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteOfficeMutation.mutate(office.id)}
+                          disabled={deleteOfficeMutation.isPending}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div>
@@ -710,10 +753,10 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <Dialog open={showAddOffice} onOpenChange={setShowAddOffice}>
+        <Dialog open={showAddOffice} onOpenChange={(open) => (open ? setShowAddOffice(true) : closeOfficeDialog())}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Office Location</DialogTitle>
+              <DialogTitle>{editingOfficeId ? 'Edit Office Location' : 'Add Office Location'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -783,12 +826,18 @@ export default function Settings() {
               </label>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAddOffice(false)}>Cancel</Button>
+              <Button variant="outline" onClick={closeOfficeDialog}>Cancel</Button>
               <Button
-                onClick={() => createOfficeMutation.mutate(newOffice)}
-                disabled={!newOffice.name || createOfficeMutation.isPending}
+                onClick={() =>
+                  editingOfficeId
+                    ? updateOfficeMutation.mutate({ id: editingOfficeId, data: newOffice })
+                    : createOfficeMutation.mutate(newOffice)
+                }
+                disabled={!newOffice.name || createOfficeMutation.isPending || updateOfficeMutation.isPending}
               >
-                {createOfficeMutation.isPending ? 'Adding…' : 'Add Office'}
+                {editingOfficeId
+                  ? (updateOfficeMutation.isPending ? 'Saving…' : 'Save Changes')
+                  : (createOfficeMutation.isPending ? 'Adding…' : 'Add Office')}
               </Button>
             </DialogFooter>
           </DialogContent>

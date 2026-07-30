@@ -109,12 +109,11 @@ DEFAULT_OFFICES = [
 ]
 
 # Confirmation-routing rule per the business's booking policy: Shorif's own
-# inbox gets cc'd to cem@go-get.ca; Safayat's confirmations go to cem@go-get.ca
-# directly (no separate Safayat inbox in use yet). Both work 10:00-17:30 in
-# 30-minute slots. zoom_link is left blank here — fill in the real per-person
-# Zoom link via Settings > Team Members (Booking) once available; no
-# placeholder URL is seeded since a fake link would silently break online
-# bookings.
+# inbox gets cc'd to cem@go-get.ca; cem's own confirmations need no separate
+# cc since it's the same inbox. Both work 10:00-17:30 in 30-minute slots.
+# zoom_link is left blank here — fill in the real per-person Zoom link via
+# Settings > Team Members (Booking) once available; no placeholder URL is
+# seeded since a fake link would silently break online bookings.
 DEFAULT_BOOKING_PROFILES = [
     {
         "user_email": "shorif@go-get.ca",
@@ -127,7 +126,7 @@ DEFAULT_BOOKING_PROFILES = [
         "is_active": True,
     },
     {
-        "user_email": "safayat@go-get.ca",
+        "user_email": "cem@go-get.ca",
         "notify_email": "cem@go-get.ca",
         "cc_emails": [],
         "zoom_link": "",

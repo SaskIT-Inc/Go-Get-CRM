@@ -26,11 +26,39 @@ import EmailLeadModal from './EmailLeadModal';
 import { COLD_STAGES, HOT_STAGES } from '@/lib/leadStages';
 
 // "Other team member" doesn't have a TeamMemberBookingProfile — selecting it
-// switches to free-text name/contact and a manually-typed meeting link, and
-// routes the confirmation to the office coordinator inbox below instead of a
-// per-person notify_email/cc_emails pair.
+// switches to free-text name/contact instead of a checkbox from the roster.
 const OTHER_TEAM_MEMBER = '__other__';
-const OTHER_TEAM_MEMBER_NOTIFY_EMAIL = 'cem@go-get.ca';
+
+// The client-facing confirmation always cc's these two, regardless of who's
+// actually assigned to the meeting.
+const APPOINTMENT_CC_EMAILS = ['cem@go-get.ca', 'shorif@go-get.ca'];
+
+// Standing Zoom link used for every online meeting unless a specific one is
+// typed into the optional Meeting Link field.
+const PERMANENT_MEETING_LINK = 'https://zoom.us/j/8347084815?pwd=OVhOR2p4a3pnbmdTcHdpWTdSelNQQT09';
+
+// Booking slots: Monday–Friday, 10:00 AM – 5:30 PM, 30 minutes each.
+const BOOKABLE_WEEKDAYS = [1, 2, 3, 4, 5]; // Date#getDay(): 0=Sun ... 6=Sat
+const SLOT_START_MINUTES = 10 * 60;
+const SLOT_END_MINUTES = 17 * 60 + 30;
+const SLOT_DURATION_MINUTES = 30;
+
+const TIME_SLOTS = [];
+for (let m = SLOT_START_MINUTES; m < SLOT_END_MINUTES; m += SLOT_DURATION_MINUTES) {
+  TIME_SLOTS.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+}
+
+function formatSlotLabel(time24) {
+  const [h, m] = time24.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function isWeekendDate(dateStr) {
+  if (!dateStr) return false;
+  return !BOOKABLE_WEEKDAYS.includes(new Date(`${dateStr}T00:00:00`).getDay());
+}
 
 export default function LeadDetailsModal({ lead, open, onClose }) {
   const navigate = useNavigate();
@@ -55,33 +83,47 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
     staleTime: 5 * 60 * 1000
   });
 
-  const isAppointmentSet = editedLead.stage === 'Appointment Set';
+  // Booking an appointment is how a lead GETS TO "Appointment Set" — so the
+  // form has to be available from New Lead (and any other non-terminal
+  // stage), not gated behind already being there. Once a lead IS at
+  // "Appointment Set", showing the form again is redundant — show the
+  // already-booked details instead. Data-fetching stays gated on the broader
+  // "not a closed/lost/false end-state" condition since both modes need it.
+  const canBookAppointment = !['Closed Leads', 'Lost Leads', 'False Leads'].includes(editedLead.stage);
+  const isAppointmentBooked = editedLead.stage === 'Appointment Set';
+  const showBookingForm = canBookAppointment && !isAppointmentBooked;
 
   const { data: offices = [] } = useQuery({
     queryKey: ['offices'],
     queryFn: () => api.entities.Office.list(),
-    enabled: isAppointmentSet,
+    enabled: canBookAppointment,
   });
   const activeOffices = offices.filter((o) => o.is_active !== false);
 
   const { data: bookingProfiles = [] } = useQuery({
     queryKey: ['bookingProfiles'],
     queryFn: () => api.entities.TeamMemberBookingProfile.list(),
-    enabled: isAppointmentSet,
+    enabled: canBookAppointment,
   });
   const activeBookingProfiles = bookingProfiles.filter((p) => p.is_active !== false);
 
   const { data: staffUsers = [] } = useQuery({
     queryKey: ['staffUsers'],
     queryFn: () => api.entities.User.list(),
-    enabled: isAppointmentSet,
+    enabled: canBookAppointment,
   });
 
   const { data: existingAppointments = [] } = useQuery({
     queryKey: ['appointments'],
     queryFn: () => api.entities.Appointment.list(),
-    enabled: isAppointmentSet,
+    enabled: canBookAppointment,
   });
+
+  // Most recent appointment on record for this lead — shown read-only once
+  // the lead is at "Appointment Set" instead of the booking form.
+  const leadAppointment = [...existingAppointments]
+    .filter((a) => a.lead_id === lead?.id)
+    .sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0];
 
   const assignedOffice = activeOffices.find((o) => o.id === officeId);
 
@@ -98,25 +140,22 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
     );
   };
 
-  // Every assigned person's own inbox gets the confirmation, plus whoever
-  // they'd normally cc (e.g. Shorif's profile cc's cem@go-get.ca) — deduped,
-  // since two assigned members can share a cc target. First recipient becomes
-  // the email's "to", the rest become "cc" (SendEmail only takes one "to").
-  const computeRecipients = () => {
-    const recipients = [];
-    const seen = new Set();
-    const add = (email) => {
-      if (email && !seen.has(email)) {
-        seen.add(email);
-        recipients.push(email);
-      }
-    };
-    assignedProfiles.forEach((p) => {
-      add(p.notify_email);
-      (p.cc_emails || []).forEach(add);
-    });
-    if (includesOther) add(OTHER_TEAM_MEMBER_NOTIFY_EMAIL);
-    return recipients;
+  // Is this slot already taken by any currently-assigned team member? Used
+  // both to grey out slot buttons and (via the same check at submit time) to
+  // block a genuine double-booking.
+  const isSlotTaken = (timeStr) => {
+    if (!appointmentDate || !timeStr || assignedProfiles.length === 0) return false;
+    const slotStart = new Date(`${appointmentDate}T${timeStr}`);
+    const slotEnd = new Date(slotStart.getTime() + SLOT_DURATION_MINUTES * 60000);
+    return assignedProfiles.some((profile) =>
+      existingAppointments.some((apt) => {
+        if (apt.status === 'Cancelled') return false;
+        if (!(apt.assigned_to || []).includes(profile.user_email)) return false;
+        const aptStart = new Date(apt.start_time);
+        const aptEnd = new Date(apt.end_time);
+        return slotStart < aptEnd && slotEnd > aptStart;
+      })
+    );
   };
 
   const bookAppointmentMutation = useMutation({
@@ -143,28 +182,18 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
         }
       }
 
-      const startDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
-      const slotMinutes = Math.max(...assignedProfiles.map((p) => p.slot_duration_minutes || 30), 30);
-      const endDateTime = new Date(startDateTime.getTime() + slotMinutes * 60000);
-
-      const hasConflict = assignedProfiles.some((profile) =>
-        existingAppointments.some((apt) => {
-          if (apt.status === 'Cancelled') return false;
-          if (!(apt.assigned_to || []).includes(profile.user_email)) return false;
-          const aptStart = new Date(apt.start_time);
-          const aptEnd = new Date(apt.end_time);
-          return startDateTime < aptEnd && endDateTime > aptStart;
-        })
-      );
-      if (hasConflict) {
+      if (isSlotTaken(appointmentTime)) {
         throw new Error('One of the assigned team members already has an appointment during that time. Pick another slot.');
       }
+
+      const startDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
+      const endDateTime = new Date(startDateTime.getTime() + SLOT_DURATION_MINUTES * 60000);
 
       const assignedLabels = [
         ...assignedProfiles.map((p) => p.user_email),
         ...(includesOther && otherTeamMemberContact.trim() ? [otherTeamMemberContact.trim()] : []),
       ];
-      const onlineMeetingLink = otherMeetingLink.trim() || assignedProfiles.find((p) => p.zoom_link)?.zoom_link || '';
+      const onlineMeetingLink = meetingType === 'Online' ? (otherMeetingLink.trim() || PERMANENT_MEETING_LINK) : '';
 
       const appointment = await api.entities.Appointment.create({
         title: `Meeting with ${lead.contact_name}`,
@@ -184,24 +213,52 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
         ...assignedProfiles.map((p) => staffUsers.find((u) => u.email === p.user_email)?.full_name || p.user_email),
         ...(includesOther && otherTeamMemberContact.trim() ? [otherTeamMemberContact.trim()] : []),
       ];
-      const assignedDisplayName = assignedDisplayNames.join(', ');
-      const recipients = computeRecipients();
-      const notifyEmail = recipients[0] || OTHER_TEAM_MEMBER_NOTIFY_EMAIL;
-      const ccEmails = recipients.slice(1);
+      const assignedDisplayName = assignedDisplayNames.join(', ') || 'our team';
       const whenText = startDateTime.toLocaleString('en-CA', {
-        dateStyle: 'medium',
+        dateStyle: 'full',
         timeStyle: 'short',
       });
       const whereText = meetingType === 'In-Person'
         ? (assignedOffice?.name || 'In-person')
-        : (onlineMeetingLink || 'Online meeting');
+        : (onlineMeetingLink || 'Will be shared before the meeting');
 
-      await api.integrations.Core.SendEmail({
-        to: notifyEmail,
-        cc: ccEmails,
-        subject: `New appointment: ${lead.contact_name}`,
-        body: `Hi,\n\nA new appointment has been booked with ${assignedDisplayName}.\n\nLead: ${lead.contact_name}${lead.company_name ? ` (${lead.company_name})` : ''}\nWhen: ${whenText}\nType: ${meetingType}\nWhere: ${whereText}\n\nThis was booked from the Lead Pipeline.`,
-      });
+      if (lead.email) {
+        const ccList = APPOINTMENT_CC_EMAILS.filter((e) => e.toLowerCase() !== lead.email.toLowerCase());
+        const meetingRow = meetingType === 'Online'
+          ? `<tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Meeting Link</td><td style="padding:6px 0; font-weight:600;">${
+              onlineMeetingLink
+                ? `<a href="${onlineMeetingLink}" style="color:#1d4ed8;">${onlineMeetingLink}</a>`
+                : 'Will be shared before the meeting'
+            }</td></tr>`
+          : `<tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Location</td><td style="padding:6px 0; font-weight:600;">${whereText}</td></tr>`;
+
+        const emailBody = `
+<div style="font-family:Arial,Helvetica,sans-serif; color:#1e293b; max-width:560px; margin:0 auto;">
+  <p style="margin:0 0 16px;">Hi ${lead.contact_name || 'there'},</p>
+  <p style="margin:0 0 16px;">Your appointment with Go-Get has been confirmed. Here are the details:</p>
+  <table style="width:100%; border-collapse:collapse; margin:0 0 16px;">
+    <tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Date &amp; Time</td><td style="padding:6px 0; font-weight:600;">${whenText}</td></tr>
+    <tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Meeting Type</td><td style="padding:6px 0; font-weight:600;">${meetingType}</td></tr>
+    ${meetingRow}
+    <tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Meeting With</td><td style="padding:6px 0; font-weight:600;">${assignedDisplayName}</td></tr>
+  </table>
+  <p style="margin:0 0 16px;">If you need to reschedule or have any questions, just reply to this email.</p>
+  <p style="margin:0 0 4px;">Best regards,</p>
+  <p style="margin:0 0 2px; font-weight:700; color:#0f172a;">The Go-Get Team</p>
+  <p style="margin:0 0 2px; font-size:13px; color:#64748b;">Go-Get CRM &amp; Accounting Services</p>
+  <p style="margin:0; font-size:13px; color:#64748b;">
+    <a href="mailto:info@go-get.ca" style="color:#1d4ed8;">info@go-get.ca</a> &middot; <a href="https://go-get.ca" style="color:#1d4ed8;">go-get.ca</a>
+  </p>
+</div>`.trim();
+
+        await api.integrations.Core.SendEmail({
+          to: lead.email,
+          cc: ccList,
+          subject: 'Your appointment with Go-Get is confirmed',
+          body: emailBody,
+          html: true,
+        });
+      }
 
       await api.entities.Activity.create({
         lead_id: lead.id,
@@ -212,13 +269,17 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
         activity_date: new Date().toISOString(),
       });
 
-      return appointment;
+      return { appointment, emailSent: !!lead.email };
     },
-    onSuccess: () => {
+    onSuccess: ({ emailSent }) => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
       queryClient.invalidateQueries({ queryKey: ['activities', lead.id] });
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      toast.success('Appointment booked and confirmation sent');
+      toast.success(
+        emailSent
+          ? 'Appointment booked and confirmation emailed to the client'
+          : 'Appointment booked — no email on file for this lead, so no confirmation was sent'
+      );
     },
     onError: (error) => toast.error(error.message || 'Failed to book appointment'),
   });
@@ -449,12 +510,15 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
               </Button>
             </div>
 
-            {isAppointmentSet && (
+            {showBookingForm && (
               <div className="p-4 rounded-lg border border-purple-200 bg-purple-50/50 space-y-4">
                 <div className="flex items-center gap-2">
                   <CalendarClock className="w-4 h-4 text-purple-700" />
                   <h4 className="font-semibold text-sm text-purple-900">Appointment Booking Option</h4>
                 </div>
+                <p className="text-xs text-purple-700">
+                  Booking an appointment will automatically move this lead to "Appointment Set".
+                </p>
 
                 <div className="space-y-2">
                   <Label className="text-xs">Meeting Type</Label>
@@ -523,7 +587,7 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
 
                 {assignedTeamMemberEmails.length > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Confirmation will be sent to: {computeRecipients().join(', ') || OTHER_TEAM_MEMBER_NOTIFY_EMAIL}.
+                    Confirmation will be emailed to {lead.email || 'the client (no email on file)'}, cc: {APPOINTMENT_CC_EMAILS.join(', ')}.
                   </p>
                 )}
 
@@ -543,40 +607,62 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label className="text-xs">Meeting Link</Label>
-                    {includesOther ? (
-                      <Input
-                        value={otherMeetingLink}
-                        onChange={(e) => setOtherMeetingLink(e.target.value)}
-                        placeholder="Paste the meeting link"
-                        className="bg-white"
-                      />
-                    ) : (
-                      <Input
-                        value={assignedProfiles.find((p) => p.zoom_link)?.zoom_link || ''}
-                        disabled
-                        placeholder="Auto-filled from the assigned team member"
-                        className="bg-white"
-                      />
-                    )}
-                    {assignedProfiles.length > 1 && (
-                      <p className="text-xs text-muted-foreground">
-                        Multiple team members assigned — using the first one's meeting link.
-                      </p>
-                    )}
+                    <Label className="text-xs">Meeting Link (optional)</Label>
+                    <Input
+                      value={otherMeetingLink}
+                      onChange={(e) => setOtherMeetingLink(e.target.value)}
+                      placeholder="Paste a meeting link, or leave blank to use the standing Zoom link"
+                      className="bg-white"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {otherMeetingLink.trim()
+                        ? 'This link will be used and sent to the client.'
+                        : `Left blank — will use the standing Zoom link (${PERMANENT_MEETING_LINK}).`}
+                    </p>
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Date</Label>
-                    <Input type="date" value={appointmentDate} onChange={(e) => setAppointmentDate(e.target.value)} className="bg-white" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Time</Label>
-                    <Input type="time" value={appointmentTime} onChange={(e) => setAppointmentTime(e.target.value)} className="bg-white" />
-                  </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Date</Label>
+                  <Input
+                    type="date"
+                    value={appointmentDate}
+                    onChange={(e) => { setAppointmentDate(e.target.value); setAppointmentTime(''); }}
+                    className="bg-white"
+                  />
+                  {isWeekendDate(appointmentDate) && (
+                    <p className="text-xs text-amber-700">Weekends aren't available — please pick a Monday–Friday date.</p>
+                  )}
                 </div>
+
+                {appointmentDate && !isWeekendDate(appointmentDate) && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Time Slot (Mon–Fri, 10:00 AM–5:30 PM, 30 min each)</Label>
+                    <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1 bg-white rounded-lg border">
+                      {TIME_SLOTS.map((slot) => {
+                        const taken = isSlotTaken(slot);
+                        const selected = appointmentTime === slot;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            disabled={taken}
+                            onClick={() => setAppointmentTime(slot)}
+                            className={`px-2 py-1.5 rounded-md text-xs font-medium border transition-all ${
+                              selected
+                                ? 'bg-navy text-white border-navy'
+                                : taken
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed line-through'
+                                : 'bg-white text-slate-700 border-slate-300 hover:border-navy'
+                            }`}
+                          >
+                            {formatSlotLabel(slot)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <Button
                   size="sm"
@@ -587,12 +673,64 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                     assignedTeamMemberEmails.length === 0 ||
                     !appointmentDate ||
                     !appointmentTime ||
+                    isWeekendDate(appointmentDate) ||
                     (includesOther && !otherTeamMemberContact.trim())
                   }
                 >
                   <CalendarClock className="w-4 h-4" />
                   {bookAppointmentMutation.isPending ? 'Booking...' : 'Book Appointment'}
                 </Button>
+              </div>
+            )}
+
+            {isAppointmentBooked && (
+              <div className="p-4 rounded-lg border border-purple-200 bg-purple-50/50 space-y-3">
+                <div className="flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4 text-purple-700" />
+                  <h4 className="font-semibold text-sm text-purple-900">Appointment Booked</h4>
+                </div>
+                {leadAppointment ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm bg-white rounded-lg border p-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Date &amp; Time</p>
+                      <p className="font-medium">
+                        {new Date(leadAppointment.start_time).toLocaleString('en-CA', { dateStyle: 'full', timeStyle: 'short' })}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Meeting Type</p>
+                      <p className="font-medium">{leadAppointment.appointment_type}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Assigned To</p>
+                      <p className="font-medium">
+                        {(leadAppointment.assigned_to || [])
+                          .map((email) => staffUsers.find((u) => u.email === email)?.full_name || email)
+                          .join(', ') || '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">
+                        {leadAppointment.appointment_type === 'In-Person' ? 'Location' : 'Meeting Link'}
+                      </p>
+                      <p className="font-medium">
+                        {leadAppointment.appointment_type === 'In-Person' ? (
+                          leadAppointment.location || '—'
+                        ) : leadAppointment.meeting_link ? (
+                          <a href={leadAppointment.meeting_link} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all">
+                            {leadAppointment.meeting_link}
+                          </a>
+                        ) : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Status</p>
+                      <p className="font-medium">{leadAppointment.status}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No appointment details found for this lead.</p>
+                )}
               </div>
             )}
 
