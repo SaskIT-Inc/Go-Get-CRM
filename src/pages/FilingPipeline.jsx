@@ -63,7 +63,7 @@ export default function FilingPipeline() {
   };
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-navy mb-2">Filing Pipeline Management</h1>
         <p className="text-muted-foreground">Track T2, T4, GST/PST filings through automated stages</p>
@@ -171,7 +171,7 @@ export default function FilingPipeline() {
                   </div>
 
                   {/* Stage Timeline */}
-                  <div className="grid grid-cols-6 gap-2 mb-6">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
                     {stages.map((stage, idx) => {
                       const Icon = stage.icon;
                       const isComplete = idx < currentStageIndex;

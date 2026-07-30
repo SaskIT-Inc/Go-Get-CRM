@@ -516,9 +516,6 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                   <CalendarClock className="w-4 h-4 text-purple-700" />
                   <h4 className="font-semibold text-sm text-purple-900">Appointment Booking Option</h4>
                 </div>
-                <p className="text-xs text-purple-700">
-                  Booking an appointment will automatically move this lead to "Appointment Set".
-                </p>
 
                 <div className="space-y-2">
                   <Label className="text-xs">Meeting Type</Label>
@@ -614,11 +611,6 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                       placeholder="Paste a meeting link, or leave blank to use the standing Zoom link"
                       className="bg-white"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      {otherMeetingLink.trim()
-                        ? 'This link will be used and sent to the client.'
-                        : `Left blank — will use the standing Zoom link (${PERMANENT_MEETING_LINK}).`}
-                    </p>
                   </div>
                 )}
 
@@ -638,7 +630,7 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                 {appointmentDate && !isWeekendDate(appointmentDate) && (
                   <div className="space-y-2">
                     <Label className="text-xs">Time Slot (Mon–Fri, 10:00 AM–5:30 PM, 30 min each)</Label>
-                    <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1 bg-white rounded-lg border">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1 bg-white rounded-lg border">
                       {TIME_SLOTS.map((slot) => {
                         const taken = isSlotTaken(slot);
                         const selected = appointmentTime === slot;

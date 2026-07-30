@@ -57,7 +57,7 @@ export default function Step2Contact({ formData, updateFormData }) {
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <Label>City</Label>
               <Input

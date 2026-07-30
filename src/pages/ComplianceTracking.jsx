@@ -137,9 +137,9 @@ export default function ComplianceTracking() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Filing Compliance</h1>
           <p className="text-muted-foreground">
@@ -152,7 +152,7 @@ export default function ComplianceTracking() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
         <Card className="border-l-4 border-l-red-500">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold text-slate-600 flex items-center gap-2">

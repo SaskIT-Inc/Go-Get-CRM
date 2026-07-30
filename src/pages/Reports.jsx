@@ -167,8 +167,8 @@ export default function Reports() {
   }
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Monthly Performance Reports</h1>
           <p className="text-muted-foreground">Generate comprehensive PDF summaries of firm performance</p>

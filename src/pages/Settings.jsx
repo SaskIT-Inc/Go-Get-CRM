@@ -453,7 +453,7 @@ export default function Settings() {
 
   if (!isAdmin) {
     return (
-      <div className="p-8 max-w-[1800px] mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
         <Card className="border-none shadow-md">
           <CardContent className="pt-6 text-center py-12">
             <Shield className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
@@ -468,9 +468,9 @@ export default function Settings() {
   }
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Settings</h1>
           <p className="text-muted-foreground">Company, users, and system configuration</p>
@@ -577,7 +577,6 @@ export default function Settings() {
                       </Button>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">Shown in the sidebar. PNG or JPG, up to 5MB.</p>
                 </div>
               </div>
 
@@ -1219,7 +1218,7 @@ export default function Settings() {
                   placeholder="https://zoom.us/j/..."
                 />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="booking_start">Working Hours Start</Label>
                   <Input

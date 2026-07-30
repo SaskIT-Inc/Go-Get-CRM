@@ -99,7 +99,7 @@ export default function TeamTasks() {
   const teamMembers = Array.from(new Set(tasks.map(t => t.assigned_to).filter(Boolean))).sort();
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Team Member Dashboard Search - Only for authorized roles */}
       {canViewMemberDashboard && (
         <div className="mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">

@@ -128,8 +128,8 @@ export default function TeamTaskDashboard() {
   };
 
   return (
-    <div className="p-8 max-w-[2000px] mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[2000px] mx-auto">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Team Task Dashboard</h1>
           <p className="text-muted-foreground">Centralized view with drag-and-drop status management and real-time updates</p>

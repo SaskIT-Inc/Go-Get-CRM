@@ -126,7 +126,7 @@ export default function Invoices() {
   const overdueCount = invoices.filter(inv => inv.payment_status === 'Overdue').length;
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>

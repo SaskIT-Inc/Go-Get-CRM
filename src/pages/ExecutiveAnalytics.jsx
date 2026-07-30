@@ -162,7 +162,7 @@ export default function ExecutiveAnalytics() {
 
   if (!isAuthorized) {
     return (
-      <div className="p-8 max-w-[1800px] mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
         <Card className="border-red-200 bg-red-50">
           <CardContent className="pt-6 flex items-center gap-4">
             <AlertCircle className="w-8 h-8 text-red-600 flex-shrink-0" />
@@ -177,8 +177,8 @@ export default function ExecutiveAnalytics() {
   }
 
   return (
-    <div className="p-8 max-w-[2000px] mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[2000px] mx-auto">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Executive Analytics</h1>
           <p className="text-muted-foreground">Revenue, conversions, and high-level KPIs</p>

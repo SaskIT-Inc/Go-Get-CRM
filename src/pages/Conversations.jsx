@@ -92,8 +92,8 @@ export default function Conversations() {
     c.subject || (c.participant_emails || []).filter((e) => e !== user?.email).map(nameForEmail).join(', ') || 'Conversation';
 
   return (
-    <div className="p-8 max-w-6xl mx-auto h-[calc(100vh-70px)]">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto h-[calc(100vh-70px)]">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-3xl font-bold text-navy">Conversations</h1>
         <Button onClick={() => setComposing(true)} className="gap-2">
           <Plus className="w-4 h-4" /> New Conversation

@@ -258,7 +258,7 @@ function Hero() {
               <div className="flex-1 bg-white/10 rounded h-5" />
               <div className="w-20 bg-white/20 rounded h-6 text-xs text-white/60 flex items-center justify-center font-semibold">GOGET</div>
             </div>
-            <div className="p-6 grid grid-cols-4 gap-4">
+            <div className="p-4 sm:p-6 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
               {STATS.map((s, i) => (
                 <motion.div
                   key={s.label}
@@ -266,17 +266,17 @@ function Hero() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: 1 + i * 0.08 }}
                   whileHover={{ y: -4, backgroundColor: 'rgba(51,65,85,0.7)' }}
-                  className="bg-slate-700/50 rounded-xl p-4"
+                  className="bg-slate-700/50 rounded-xl p-3 sm:p-4"
                 >
                   <p className="text-slate-400 text-xs mb-1">{s.label}</p>
-                  <p className={`text-3xl font-extrabold ${s.color}`}>
+                  <p className={`text-2xl sm:text-3xl font-extrabold ${s.color}`}>
                     <AnimatedNumber value={s.value} />
                   </p>
                 </motion.div>
               ))}
             </div>
-            <div className="px-6 pb-6 grid grid-cols-3 gap-4">
-              <div className="col-span-2 bg-slate-700/30 rounded-xl p-4 h-28">
+            <div className="px-4 sm:px-6 pb-4 sm:pb-6 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="sm:col-span-2 bg-slate-700/30 rounded-xl p-4 h-28">
                 <p className="text-slate-400 text-xs mb-3 font-semibold uppercase tracking-wide">Upcoming Filing Deadlines</p>
                 {DEADLINES.map((item, i) => (
                   <motion.div

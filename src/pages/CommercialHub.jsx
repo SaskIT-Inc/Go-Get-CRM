@@ -196,8 +196,8 @@ export default function CommercialHub() {
   const activeRetainers = retainers.filter(r => r.status === 'active' || r.status === 'signed');
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Commercial Hub</h1>
           <p className="text-muted-foreground">Unified service catalog, estimates, and retainer management</p>
@@ -205,7 +205,7 @@ export default function CommercialHub() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="flex w-full overflow-x-auto sm:grid sm:grid-cols-3">
           <TabsTrigger value="catalog" className="gap-2">
             <Briefcase className="w-4 h-4" />
             Service Catalog ({services.length})
@@ -331,7 +331,7 @@ export default function CommercialHub() {
                           <Badge>{retainer.status}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mb-3">{client?.legal_name}</p>
-                        <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 text-sm">
                           <div>
                             <p className="text-muted-foreground">Monthly</p>
                             <p className="font-bold text-navy">${retainer.total_monthly_fee?.toFixed(2)}</p>

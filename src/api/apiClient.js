@@ -129,6 +129,10 @@ export const api = {
     getWebsiteIntegration: () => request('/api/website-integration'),
   },
 
+  notifications: {
+    markAllRead: () => request('/api/notifications/mark-all-read', { method: 'POST' }),
+  },
+
   craForms: {
     list: () => request('/api/cra-forms'),
   },

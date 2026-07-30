@@ -128,7 +128,7 @@ export default function RetainerManagement() {
   const inactiveRetainers = retainers.filter(r => r.status === 'paused' || r.status === 'cancelled');
 
   return (
-    <div className="p-8 max-w-[1400px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-4xl font-bold text-navy">Retainer Management</h1>
@@ -210,7 +210,7 @@ export default function RetainerManagement() {
 
       {/* Tabs */}
       <Tabs defaultValue="drafts" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="flex w-full overflow-x-auto sm:grid sm:grid-cols-4">
           <TabsTrigger value="drafts">Drafts ({draftRetainers.length})</TabsTrigger>
           <TabsTrigger value="pending">Pending ({sentRetainers.length})</TabsTrigger>
           <TabsTrigger value="active">Active ({activeRetainers.length})</TabsTrigger>
@@ -241,7 +241,7 @@ export default function RetainerManagement() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground mb-3">{client?.legal_name}</p>
-                          <div className="grid grid-cols-3 gap-4 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 text-sm">
                             <div>
                               <p className="text-muted-foreground">Monthly Fee</p>
                               <p className="font-bold text-navy">${retainer.total_monthly_fee?.toFixed(2)}</p>
@@ -343,7 +343,7 @@ export default function RetainerManagement() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground mb-3">{client?.legal_name}</p>
-                          <div className="grid grid-cols-4 gap-4 text-sm">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-sm">
                             <div>
                               <p className="text-muted-foreground">Monthly</p>
                               <p className="font-bold text-green-700">${retainer.total_monthly_fee?.toFixed(2)}</p>

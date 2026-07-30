@@ -26,8 +26,8 @@ export default function PermissionMatrixEditor({ value, onChange }) {
   };
 
   return (
-    <div className="border rounded-lg overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="border rounded-lg overflow-x-auto">
+      <table className="w-full text-sm min-w-[420px]">
         <thead>
           <tr className="bg-slate-50 border-b">
             <th className="text-left py-2 px-3 font-semibold text-slate-600">Module</th>

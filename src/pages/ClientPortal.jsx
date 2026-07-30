@@ -115,7 +115,7 @@ export default function ClientPortal() {
 
   if (!client) {
     return (
-      <div className="p-8 max-w-[1400px] mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto">
         <Card className="border-none shadow-md">
           <CardContent className="py-12 text-center">
             <AlertCircle className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
@@ -130,7 +130,7 @@ export default function ClientPortal() {
   }
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-navy mb-2">Client Portal</h1>
         <p className="text-muted-foreground">Welcome, {client.legal_name}</p>

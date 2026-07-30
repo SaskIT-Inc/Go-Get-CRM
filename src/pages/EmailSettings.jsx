@@ -102,8 +102,8 @@ export default function EmailSettings() {
   });
 
   return (
-    <div className="p-8 max-w-2xl mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-2xl mx-auto">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Email Settings</h1>
           <p className="text-muted-foreground">Connect your own mailbox to send CRM email as yourself</p>

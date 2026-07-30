@@ -258,7 +258,7 @@ export default function ClientProfile() {
 
   if (!selectedClientId) {
     return (
-      <div className="p-8 max-w-[1800px] mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-4xl font-bold text-navy">Client Profile</h1>
           <Link to={createPageUrl('ClientDirectory')}><Button variant="outline">View All Clients</Button></Link>
@@ -302,7 +302,7 @@ export default function ClientProfile() {
   }
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <Link to={createPageUrl('ClientDirectory')}><Button variant="outline">← Directory</Button></Link>

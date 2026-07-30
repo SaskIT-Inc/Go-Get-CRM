@@ -146,7 +146,7 @@ export default function Analytics() {
 
   if (!hasAccess) {
     return (
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
         <Card className="border-red-200 bg-red-50">
           <CardContent className="pt-6">
             <div className="flex items-start gap-4">
@@ -165,9 +165,9 @@ export default function Analytics() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Service Performance Analytics</h1>
           <p className="text-muted-foreground">

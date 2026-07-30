@@ -95,7 +95,7 @@ export default function Workspace() {
   const overdue = myTasks.filter(f => f.due_date && new Date(f.due_date) < new Date());
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-navy mb-2">Workspace</h1>

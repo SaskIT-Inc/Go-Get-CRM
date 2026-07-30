@@ -88,7 +88,7 @@ export default function ClientDocuments() {
   const currentYearDocs = documents.filter(d => d.tax_year === currentYear).length;
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-navy mb-2">Document Management</h1>

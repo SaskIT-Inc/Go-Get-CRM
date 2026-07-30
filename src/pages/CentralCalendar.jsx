@@ -153,8 +153,8 @@ export default function CentralCalendar() {
   };
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Calendar & Deadlines</h1>
           <p className="text-muted-foreground">Drag tasks to reschedule - synced with task management</p>
@@ -198,6 +198,8 @@ export default function CentralCalendar() {
                 </div>
               </CardHeader>
               <CardContent>
+                <div className="overflow-x-auto">
+                <div className="min-w-[640px]">
                 {/* Day headers */}
                 <div className="grid grid-cols-7 gap-2 mb-4">
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
@@ -291,6 +293,8 @@ export default function CentralCalendar() {
                       </Droppable>
                     );
                   })}
+                </div>
+                </div>
                 </div>
               </CardContent>
             </Card>

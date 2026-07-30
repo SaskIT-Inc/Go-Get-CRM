@@ -27,7 +27,7 @@ const UPCOMING = [
 
 export default function ExploreAI() {
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
       <div className="mb-10 text-center">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-lg mx-auto mb-4">
           <Sparkles className="w-8 h-8 text-white" />

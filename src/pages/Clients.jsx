@@ -131,7 +131,7 @@ export default function Clients() {
   };
 
   return (
-    <div className="p-8 max-w-[1800px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       {/* Header */}
       <div className="mb-8 flex items-start justify-between">
         <div>

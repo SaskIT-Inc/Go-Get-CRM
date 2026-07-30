@@ -202,7 +202,7 @@ export default function RevenueAnalytics({ invoices }) {
 
           <div className="mt-6 bg-slate-50 p-4 rounded-lg">
             <p className="text-sm font-semibold text-slate-600 mb-2">Year Summary ({selectedYear})</p>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <p className="text-xs text-slate-500">Total Revenue</p>
                 <p className="text-xl font-bold text-green-600">

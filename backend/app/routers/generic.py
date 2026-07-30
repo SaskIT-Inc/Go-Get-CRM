@@ -383,6 +383,28 @@ ACTIVITY_ON_CREATE = {
 }
 
 
+@router.post("/notifications/mark-all-read")
+async def mark_all_notifications_read(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Bulk 'Clear All' for the notification bell — marks every unread
+    Notification row for this user as read in one round trip, not just the
+    (limited) page the frontend currently has loaded."""
+    Notification = MODELS["Notification"]
+    result = await db.execute(
+        select(Notification).where(
+            Notification.recipient_email == user.email,
+            Notification.is_read.is_(False),
+        )
+    )
+    rows = result.scalars().all()
+    for row in rows:
+        row.is_read = True
+    await db.commit()
+    return {"updated": len(rows)}
+
+
 @router.post("/{entity}", status_code=status.HTTP_201_CREATED)
 async def create_entity(
     entity: str,
@@ -521,6 +543,24 @@ async def create_entity(
             except Exception:
                 pass
 
+    if entity == "Task" and obj.assigned_to and obj.assigned_to != user.email:
+        # Personal, targeted alert to the assignee — separate from the
+        # "task_created" broadcast above (which goes to everyone with tasks
+        # view and says nothing about who it's for). This is the one that
+        # actually matters to a single person's notification feed.
+        try:
+            await notify_specific_staff(
+                db=db,
+                actor_email=user.email,
+                recipients=[obj.assigned_to],
+                notif_type="task_assigned",
+                title="You were assigned a task",
+                body=f"{user.email} assigned you to \"{obj.title}\"",
+                link_url="/Tasks",
+            )
+        except Exception:
+            pass
+
     if entity in ACTIVITY_ON_CREATE:
         client_id, activity_type, title = ACTIVITY_ON_CREATE[entity](obj)
         if client_id:
@@ -578,6 +618,7 @@ async def update_entity(
     # Snapshot before apply_update mutates obj in place — it has no diff/
     # return value, so this is the only chance to detect a transition.
     was_completed = entity == "Task" and getattr(obj, "status", None) == "Completed"
+    old_assigned_to = getattr(obj, "assigned_to", None) if entity == "Task" else None
     old_filing_status = getattr(obj, "status", None) if entity == "ServiceFiling" else None
     apply_update(entity, obj, body)
     try:
@@ -619,6 +660,20 @@ async def update_entity(
                 )
             except Exception:
                 pass
+
+    if entity == "Task" and obj.assigned_to and obj.assigned_to != old_assigned_to and obj.assigned_to != user.email:
+        try:
+            await notify_specific_staff(
+                db=db,
+                actor_email=user.email,
+                recipients=[obj.assigned_to],
+                notif_type="task_assigned",
+                title="You were assigned a task",
+                body=f"{user.email} assigned you to \"{obj.title}\"",
+                link_url="/Tasks",
+            )
+        except Exception:
+            pass
 
     if entity == "Client":
         # A single "profile updated" row per save is enough for the Activity

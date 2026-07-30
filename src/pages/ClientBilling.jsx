@@ -139,7 +139,7 @@ function InvoiceList() {
     .reduce((sum, inv) => sum + (inv.balance_due || 0), 0);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-slate-900 flex items-center gap-2">
           <DollarSign className="w-8 h-8" />
