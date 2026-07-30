@@ -322,6 +322,7 @@ export default function Settings() {
   });
   const [showAddBookingProfile, setShowAddBookingProfile] = useState(false);
   const [newBookingProfile, setNewBookingProfile] = useState(EMPTY_TEAM_MEMBER_PROFILE);
+  const [editingBookingProfileId, setEditingBookingProfileId] = useState(null);
 
   const createBookingProfileMutation = useMutation({
     mutationFn: (data) =>
@@ -333,10 +334,24 @@ export default function Settings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookingProfiles'] });
       toast.success('Team member added to booking');
-      setShowAddBookingProfile(false);
-      setNewBookingProfile(EMPTY_TEAM_MEMBER_PROFILE);
+      closeBookingProfileDialog();
     },
     onError: (error) => toast.error('Failed to add team member: ' + error.message),
+  });
+
+  const updateBookingProfileMutation = useMutation({
+    mutationFn: ({ id, data }) =>
+      api.entities.TeamMemberBookingProfile.update(id, {
+        ...data,
+        cc_emails: data.cc_emails ? data.cc_emails.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        slot_duration_minutes: parseInt(data.slot_duration_minutes) || 30,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookingProfiles'] });
+      toast.success('Team member booking profile updated');
+      closeBookingProfileDialog();
+    },
+    onError: (error) => toast.error('Failed to update team member: ' + error.message),
   });
 
   const deleteBookingProfileMutation = useMutation({
@@ -347,6 +362,27 @@ export default function Settings() {
     },
     onError: (error) => toast.error('Failed to remove team member: ' + error.message),
   });
+
+  const openEditBookingProfile = (profile) => {
+    setEditingBookingProfileId(profile.id);
+    setNewBookingProfile({
+      user_email: profile.user_email || '',
+      notify_email: profile.notify_email || '',
+      cc_emails: (profile.cc_emails || []).join(', '),
+      zoom_link: profile.zoom_link || '',
+      working_hours_start: profile.working_hours_start || '09:00',
+      working_hours_end: profile.working_hours_end || '17:00',
+      slot_duration_minutes: String(profile.slot_duration_minutes || 30),
+      days_available: profile.days_available || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    });
+    setShowAddBookingProfile(true);
+  };
+
+  const closeBookingProfileDialog = () => {
+    setShowAddBookingProfile(false);
+    setEditingBookingProfileId(null);
+    setNewBookingProfile(EMPTY_TEAM_MEMBER_PROFILE);
+  };
 
   const toggleBookingDay = (day) => {
     setNewBookingProfile((prev) => ({
@@ -1067,14 +1103,23 @@ export default function Settings() {
                             </span>
                           )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteBookingProfileMutation.mutate(profile.id)}
-                          disabled={deleteBookingProfileMutation.isPending}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditBookingProfile(profile)}
+                          >
+                            <Pencil className="w-4 h-4 text-muted-foreground" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteBookingProfileMutation.mutate(profile.id)}
+                            disabled={deleteBookingProfileMutation.isPending}
+                          >
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         <div>
@@ -1111,10 +1156,10 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <Dialog open={showAddBookingProfile} onOpenChange={setShowAddBookingProfile}>
+        <Dialog open={showAddBookingProfile} onOpenChange={(open) => (open ? setShowAddBookingProfile(true) : closeBookingProfileDialog())}>
           <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Add Team Member to Booking</DialogTitle>
+              <DialogTitle>{editingBookingProfileId ? 'Edit Team Member Booking' : 'Add Team Member to Booking'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -1122,7 +1167,6 @@ export default function Settings() {
                 <Select
                   value={newBookingProfile.user_email || undefined}
                   onValueChange={(v) => {
-                    const staffUser = staffUsers.find((u) => u.email === v);
                     setNewBookingProfile({
                       ...newBookingProfile,
                       user_email: v,
@@ -1135,8 +1179,17 @@ export default function Settings() {
                     {staffUsers.filter((u) => u.is_active !== false).map((u) => (
                       <SelectItem key={u.id} value={u.email}>{u.full_name || u.email}</SelectItem>
                     ))}
+                    {newBookingProfile.user_email && !staffUsers.some((u) => u.email === newBookingProfile.user_email) && (
+                      <SelectItem value={newBookingProfile.user_email}>{newBookingProfile.user_email} (not in staff list)</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
+                <Input
+                  value={newBookingProfile.user_email}
+                  onChange={(e) => setNewBookingProfile({ ...newBookingProfile, user_email: e.target.value })}
+                  placeholder="Or type any email directly, e.g. cem@go-get.ca"
+                  className="mt-1"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="booking_notify">Notify Email</Label>
@@ -1218,12 +1271,18 @@ export default function Settings() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAddBookingProfile(false)}>Cancel</Button>
+              <Button variant="outline" onClick={closeBookingProfileDialog}>Cancel</Button>
               <Button
-                onClick={() => createBookingProfileMutation.mutate(newBookingProfile)}
-                disabled={!newBookingProfile.user_email || createBookingProfileMutation.isPending}
+                onClick={() =>
+                  editingBookingProfileId
+                    ? updateBookingProfileMutation.mutate({ id: editingBookingProfileId, data: newBookingProfile })
+                    : createBookingProfileMutation.mutate(newBookingProfile)
+                }
+                disabled={!newBookingProfile.user_email || createBookingProfileMutation.isPending || updateBookingProfileMutation.isPending}
               >
-                {createBookingProfileMutation.isPending ? 'Adding…' : 'Add Team Member'}
+                {editingBookingProfileId
+                  ? (updateBookingProfileMutation.isPending ? 'Saving…' : 'Save Changes')
+                  : (createBookingProfileMutation.isPending ? 'Adding…' : 'Add Team Member')}
               </Button>
             </DialogFooter>
           </DialogContent>

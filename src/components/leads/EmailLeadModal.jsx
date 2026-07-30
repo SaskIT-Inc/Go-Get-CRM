@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Mail, Loader2, ListPlus } from 'lucide-react';
+import { Mail, Loader2, ListPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 function buildTemplate(lead) {
@@ -23,13 +23,51 @@ function buildTemplate(lead) {
   };
 }
 
+// Single source of truth for the "Reference:" block — used for both the live
+// preview shown in the modal and the actual email body on send, so what the
+// user sees is exactly what gets sent.
+function buildReferenceLines({ packages, selectedPackageIds, services, customBundles }) {
+  const lines = [];
+
+  packages
+    .filter((pkg) => selectedPackageIds.includes(pkg.id))
+    .forEach((pkg) => {
+      const priceLabel = [pkg.price, pkg.billing_frequency].filter(Boolean).join(', ');
+      lines.push(`- ${pkg.name}${priceLabel ? ` (${priceLabel})` : ''}`);
+      if (pkg.description?.trim()) lines.push(`  ${pkg.description.trim()}`);
+    });
+
+  customBundles.forEach((bundle) => {
+    const bundleServices = services.filter((s) => bundle.serviceIds.includes(s.id));
+    const valueLabel = bundle.value ? ` (${bundle.value})` : '';
+    if (bundleServices.length === 0) {
+      if (!bundle.value) return;
+      lines.push(`- Custom Item${valueLabel}`);
+      return;
+    }
+    if (bundleServices.length === 1) {
+      const s = bundleServices[0];
+      lines.push(`- ${s.service_name}${valueLabel}`);
+      if (s.notes?.trim()) lines.push(`  ${s.notes.trim()}`);
+      return;
+    }
+    lines.push(`- Custom Services Package${valueLabel}:`);
+    bundleServices.forEach((s) => {
+      lines.push(`  • ${s.service_name}${s.notes ? ` — ${s.notes}` : ''}`);
+    });
+  });
+
+  return lines;
+}
+
 export default function EmailLeadModal({ lead, open, onClose, onSent }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [selectedPackageIds, setSelectedPackageIds] = useState([]);
-  const [otherServicesActive, setOtherServicesActive] = useState(false);
-  const [otherServiceIds, setOtherServiceIds] = useState([]);
-  const [otherServicesValue, setOtherServicesValue] = useState('');
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [draftServiceIds, setDraftServiceIds] = useState([]);
+  const [draftValue, setDraftValue] = useState('');
+  const [customBundles, setCustomBundles] = useState([]);
   const [sending, setSending] = useState(false);
 
   const { data: services = [] } = useQuery({
@@ -48,9 +86,10 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       setSubject(template.subject);
       setBody(template.body);
       setSelectedPackageIds([]);
-      setOtherServicesActive(false);
-      setOtherServiceIds([]);
-      setOtherServicesValue('');
+      setBuilderOpen(false);
+      setDraftServiceIds([]);
+      setDraftValue('');
+      setCustomBundles([]);
     }
   }, [open, lead]);
 
@@ -60,10 +99,27 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
     );
   };
 
-  const toggleOtherServiceId = (id) => {
-    setOtherServiceIds((prev) =>
+  const toggleDraftServiceId = (id) => {
+    setDraftServiceIds((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
     );
+  };
+
+  const handleSetBundle = () => {
+    if (draftServiceIds.length === 0 && !draftValue.trim()) {
+      toast.error('Pick at least one service or enter a value first');
+      return;
+    }
+    setCustomBundles((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${prev.length}`, serviceIds: draftServiceIds, value: draftValue.trim() },
+    ]);
+    setDraftServiceIds([]);
+    setDraftValue('');
+  };
+
+  const removeBundle = (id) => {
+    setCustomBundles((prev) => prev.filter((b) => b.id !== id));
   };
 
   const insertFullPriceList = () => {
@@ -83,6 +139,8 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
     setBody((prev) => (prev.trim() ? `${prev}\n\n${menu}` : menu));
   };
 
+  const referenceLines = buildReferenceLines({ packages, selectedPackageIds, services, customBundles });
+
   const handleSend = async () => {
     if (!lead?.email) {
       toast.error('This lead has no email address on file');
@@ -93,32 +151,14 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       return;
     }
 
-    const selectedPackages = packages.filter((p) => selectedPackageIds.includes(p.id));
-    const selectedOtherServices = otherServicesActive
-      ? services.filter((s) => otherServiceIds.includes(s.id))
-      : [];
-
-    // Standard, consistently-spaced plain-text formatting: one blank line
-    // between the message and the reference block, a single "- " bullet per
-    // package/custom-bundle, and a two-space-indented sub-bullet for whatever
-    // it contains — never more than one blank line in a row.
-    const referenceLines = [];
-    selectedPackages.forEach((pkg) => {
-      const priceLabel = [pkg.price ? `$${pkg.price}` : null, pkg.billing_frequency].filter(Boolean).join(', ');
-      referenceLines.push(`- ${pkg.name}${priceLabel ? ` (${priceLabel})` : ''}`);
-      if (pkg.description?.trim()) referenceLines.push(`  ${pkg.description.trim()}`);
-    });
-    if (selectedOtherServices.length > 0) {
-      const valueLabel = otherServicesValue.trim() ? ` — ${otherServicesValue.trim()}` : '';
-      referenceLines.push(`- Custom Services Package${valueLabel}:`);
-      selectedOtherServices.forEach((s) => {
-        referenceLines.push(`  • ${s.service_name}${s.notes ? ` — ${s.notes}` : ''}`);
-      });
-    }
-
     const finalBody = referenceLines.length
       ? `${body.trim()}\n\nReference:\n${referenceLines.join('\n')}`
       : body.trim();
+
+    const selectedPackages = packages.filter((p) => selectedPackageIds.includes(p.id));
+    const bundleServiceNames = customBundles.flatMap((bundle) =>
+      services.filter((s) => bundle.serviceIds.includes(s.id)).map((s) => s.service_name)
+    );
 
     setSending(true);
     try {
@@ -126,7 +166,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       toast.success(`Email sent to ${lead.email}`);
       onSent?.({
         subject,
-        services: [...selectedPackages.map((p) => p.name), ...selectedOtherServices.map((s) => s.service_name)],
+        services: [...selectedPackages.map((p) => p.name), ...bundleServiceNames],
       });
       onClose();
     } catch (error) {
@@ -169,6 +209,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
             </div>
             <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
           </div>
+
           {(packages.length > 0 || services.length > 0) && (
             <div className="space-y-3">
               <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -187,15 +228,15 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
                         : 'bg-white text-slate-600 border-slate-300'
                     }`}
                   >
-                    {pkg.name}{pkg.price ? ` — $${pkg.price}` : ''}
+                    {pkg.name}{pkg.price ? ` — ${pkg.price}` : ''}
                   </button>
                 ))}
                 {services.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setOtherServicesActive((prev) => !prev)}
+                    onClick={() => setBuilderOpen((prev) => !prev)}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                      otherServicesActive
+                      builderOpen
                         ? 'bg-navy text-white border-navy'
                         : 'bg-white text-slate-600 border-slate-300'
                     }`}
@@ -205,18 +246,42 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
                 )}
               </div>
 
-              {otherServicesActive && (
+              {customBundles.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {customBundles.map((bundle) => {
+                    const bundleServices = services.filter((s) => bundle.serviceIds.includes(s.id));
+                    const label = bundleServices.length === 1
+                      ? bundleServices[0].service_name
+                      : bundleServices.length > 1
+                        ? `Custom Package (${bundleServices.length} services)`
+                        : 'Custom Item';
+                    return (
+                      <span
+                        key={bundle.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                      >
+                        {label}{bundle.value ? ` — ${bundle.value}` : ''}
+                        <button type="button" onClick={() => removeBundle(bundle.id)} className="hover:text-emerald-900">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {builderOpen && (
                 <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Pick the services to include</Label>
+                    <Label className="text-xs">Pick the services to include (one or more)</Label>
                     <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
                       {services.map((service) => (
                         <button
                           key={service.id}
                           type="button"
-                          onClick={() => toggleOtherServiceId(service.id)}
+                          onClick={() => toggleDraftServiceId(service.id)}
                           className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                            otherServiceIds.includes(service.id)
+                            draftServiceIds.includes(service.id)
                               ? 'bg-navy text-white border-navy'
                               : 'bg-white text-slate-600 border-slate-300'
                           }`}
@@ -226,15 +291,32 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
                       ))}
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Custom value (optional)</Label>
-                    <Input
-                      value={otherServicesValue}
-                      onChange={(e) => setOtherServicesValue(e.target.value)}
-                      placeholder="e.g. $250 or $250/mo"
-                      className="h-9 bg-white"
-                    />
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 space-y-1.5">
+                      <Label className="text-xs">Custom value (optional)</Label>
+                      <Input
+                        value={draftValue}
+                        onChange={(e) => setDraftValue(e.target.value)}
+                        placeholder="e.g. $250 or $250/mo"
+                        className="h-9 bg-white"
+                      />
+                    </div>
+                    <Button type="button" size="sm" className="h-9" onClick={handleSetBundle}>
+                      Set
+                    </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Click "Set" to add this to the email below — you can build another custom item or single service right after.
+                  </p>
+                </div>
+              )}
+
+              {referenceLines.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Live preview — appended to the email as sent</Label>
+                  <pre className="text-xs bg-slate-900 text-slate-100 rounded-lg p-3 whitespace-pre-wrap font-mono">
+                    {`Reference:\n${referenceLines.join('\n')}`}
+                  </pre>
                 </div>
               )}
             </div>
