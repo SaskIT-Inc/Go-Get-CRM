@@ -15,15 +15,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Briefcase, DollarSign, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const SERVICE_FREQUENCY_OPTIONS = ['Weekly', 'Monthly', 'Quarterly', 'Half Yearly', 'Annually'];
-
 const EMPTY_SERVICE = {
   service_category: '',
   service_name: '',
   service_type: '',
   cra_form: '',
   cra_deadline: '',
-  service_frequency: '',
   period_end_date: '',
   due_date: '',
   billing_frequency: '',
@@ -43,6 +40,7 @@ export default function DatabaseServices() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_SERVICE);
   const [showAddPackage, setShowAddPackage] = useState(false);
+  const [editingPackageId, setEditingPackageId] = useState(null);
   const [newPackage, setNewPackage] = useState(EMPTY_PACKAGE);
 
   const { data: services = [], isLoading } = useQuery({
@@ -86,15 +84,14 @@ export default function DatabaseServices() {
     onError: (error) => toast.error('Failed to remove service: ' + error.message),
   });
 
-  const createPackageMutation = useMutation({
-    mutationFn: (data) => api.entities.Package.create(data),
+  const savePackageMutation = useMutation({
+    mutationFn: (data) => (editingPackageId ? api.entities.Package.update(editingPackageId, data) : api.entities.Package.create(data)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success('Package added');
-      setShowAddPackage(false);
-      setNewPackage(EMPTY_PACKAGE);
+      toast.success(editingPackageId ? 'Package updated' : 'Package added');
+      closePackageDialog();
     },
-    onError: (error) => toast.error('Failed to add package: ' + error.message),
+    onError: (error) => toast.error('Failed to save package: ' + error.message),
   });
 
   const deletePackageMutation = useMutation({
@@ -127,6 +124,24 @@ export default function DatabaseServices() {
     setShowForm(false);
     setEditingId(null);
     setForm(EMPTY_SERVICE);
+  };
+
+  const openAddPackage = () => {
+    setEditingPackageId(null);
+    setNewPackage(EMPTY_PACKAGE);
+    setShowAddPackage(true);
+  };
+
+  const openEditPackage = (pkg) => {
+    setEditingPackageId(pkg.id);
+    setNewPackage({ ...EMPTY_PACKAGE, ...pkg });
+    setShowAddPackage(true);
+  };
+
+  const closePackageDialog = () => {
+    setShowAddPackage(false);
+    setEditingPackageId(null);
+    setNewPackage(EMPTY_PACKAGE);
   };
 
   const handleCraFormChange = (code) => {
@@ -313,32 +328,14 @@ export default function DatabaseServices() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Service Frequency</Label>
-                    <Select
-                      value={form.service_frequency || undefined}
-                      onValueChange={(value) => setForm({ ...form, service_frequency: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select frequency..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SERVICE_FREQUENCY_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>{option}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="billing_frequency">Billing Frequency</Label>
-                    <Input
-                      id="billing_frequency"
-                      value={form.billing_frequency}
-                      onChange={(e) => setForm({ ...form, billing_frequency: e.target.value })}
-                      placeholder="One-time"
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="billing_frequency">Billing Frequency</Label>
+                  <Input
+                    id="billing_frequency"
+                    value={form.billing_frequency}
+                    onChange={(e) => setForm({ ...form, billing_frequency: e.target.value })}
+                    placeholder="One-time"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -460,14 +457,19 @@ export default function DatabaseServices() {
                           </span>
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deletePackageMutation.mutate(pkg.id)}
-                        disabled={deletePackageMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openEditPackage(pkg)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deletePackageMutation.mutate(pkg.id)}
+                          disabled={deletePackageMutation.isPending}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                       <div>
@@ -485,16 +487,16 @@ export default function DatabaseServices() {
                   </CardContent>
                 </Card>
               ))}
-              <Button variant="outline" className="w-full" onClick={() => setShowAddPackage(true)}>
+              <Button variant="outline" className="w-full" onClick={openAddPackage}>
                 + Add New Package
               </Button>
             </CardContent>
           </Card>
 
-          <Dialog open={showAddPackage} onOpenChange={setShowAddPackage}>
+          <Dialog open={showAddPackage} onOpenChange={(open) => (open ? setShowAddPackage(true) : closePackageDialog())}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add Pricing Package</DialogTitle>
+                <DialogTitle>{editingPackageId ? 'Edit Pricing Package' : 'Add Pricing Package'}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -535,14 +537,26 @@ export default function DatabaseServices() {
                     rows={3}
                   />
                 </div>
+                {editingPackageId && (
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="font-medium text-navy text-sm">Active</p>
+                      <p className="text-xs text-muted-foreground">Inactive packages are hidden from selectors</p>
+                    </div>
+                    <Switch
+                      checked={newPackage.is_active !== false}
+                      onCheckedChange={(checked) => setNewPackage({ ...newPackage, is_active: checked })}
+                    />
+                  </div>
+                )}
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddPackage(false)}>Cancel</Button>
+                <Button variant="outline" onClick={closePackageDialog}>Cancel</Button>
                 <Button
-                  onClick={() => createPackageMutation.mutate(newPackage)}
-                  disabled={!newPackage.name || createPackageMutation.isPending}
+                  onClick={() => savePackageMutation.mutate(newPackage)}
+                  disabled={!newPackage.name || savePackageMutation.isPending}
                 >
-                  {createPackageMutation.isPending ? 'Adding…' : 'Add Package'}
+                  {savePackageMutation.isPending ? 'Saving…' : editingPackageId ? 'Save Changes' : 'Add Package'}
                 </Button>
               </DialogFooter>
             </DialogContent>

@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TaskTemplateSelector from './TaskTemplateSelector';
 import TaskCommentSection from '../comments/TaskCommentSection';
 import { toast } from 'sonner';
+
+const SERVICE_FREQUENCY_OPTIONS = ['Weekly', 'Monthly', 'Quarterly', 'Half Yearly', 'Annually'];
 
 export default function TaskFormModal({ task, onClose, currentUser }) {
   const queryClient = useQueryClient();
@@ -26,6 +28,9 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
     assigned_to: currentUser?.email || '',
     client_id: '',
     service_filing_id: '',
+    linked_service_id: '',
+    linked_package_id: '',
+    service_frequency: '',
     due_date: '',
     start_date: '',
     estimated_hours: '',
@@ -42,9 +47,16 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
     queryFn: () => api.entities.Client.list()
   });
 
-  const { data: serviceFilings = [] } = useQuery({
-    queryKey: ['serviceFilings'],
-    queryFn: () => api.entities.ServiceFiling.list()
+  const { data: services = [] } = useQuery({
+    queryKey: ['services'],
+    queryFn: () => api.entities.Service.list(),
+    retry: false,
+  });
+
+  const { data: packages = [] } = useQuery({
+    queryKey: ['packages'],
+    queryFn: () => api.entities.Package.list(),
+    retry: false,
   });
 
   const saveMutation = useMutation({
@@ -71,6 +83,24 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
     const dataToSave = { ...formData };
     dataToSave.estimated_hours = dataToSave.estimated_hours ? Number(dataToSave.estimated_hours) : null;
     saveMutation.mutate(dataToSave);
+  };
+
+  // A task links to at most one of Service/Package — encode the pick as
+  // "service:<id>" / "package:<id>" in a single dropdown, split back into
+  // the two separate fields on change.
+  const linkedValue = formData.linked_service_id
+    ? `service:${formData.linked_service_id}`
+    : formData.linked_package_id
+    ? `package:${formData.linked_package_id}`
+    : '';
+
+  const handleLinkedChange = (value) => {
+    const [type, id] = value.split(':');
+    setFormData({
+      ...formData,
+      linked_service_id: type === 'service' ? id : '',
+      linked_package_id: type === 'package' ? id : '',
+    });
   };
 
   return (
@@ -200,17 +230,48 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
                   </div>
 
                   <div>
-                    <Label htmlFor="service_filing_id">Link to Service Filing (Optional)</Label>
-                    <Select value={formData.service_filing_id || ''} onValueChange={(value) => setFormData({ ...formData, service_filing_id: value })}>
+                    <Label htmlFor="linked_service">Link to Service / Package (Optional)</Label>
+                    <Select value={linkedValue} onValueChange={handleLinkedChange}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select service filing" />
+                        <SelectValue placeholder="Select a service or package" />
                       </SelectTrigger>
                       <SelectContent className="bg-white">
-                        <SelectItem value={null} className="text-slate-900">None</SelectItem>
-                        {serviceFilings.map(filing => (
-                          <SelectItem key={filing.id} value={filing.id} className="text-slate-900">
-                            {filing.service_name} - {filing.filing_year}
-                          </SelectItem>
+                        {services.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Services</SelectLabel>
+                            {services.map(s => (
+                              <SelectItem key={s.id} value={`service:${s.id}`} className="text-slate-900">
+                                {s.service_name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {packages.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Packages</SelectLabel>
+                            {packages.map(p => (
+                              <SelectItem key={p.id} value={`package:${p.id}`} className="text-slate-900">
+                                {p.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="service_frequency">Service Frequency (Optional)</Label>
+                    <Select
+                      value={formData.service_frequency || undefined}
+                      onValueChange={(value) => setFormData({ ...formData, service_frequency: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select frequency..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white">
+                        {SERVICE_FREQUENCY_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option} className="text-slate-900">{option}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
