@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   User, Building2, Mail, Phone, MapPin, FileText, DollarSign,
   Calendar, Edit, Save, X, Search, MessageSquare,
-  AlertTriangle, Activity, Globe, Lock, Plus, Trash2, RefreshCw, KeyRound, CheckCircle2, Loader2, Send
+  AlertTriangle, Activity, Globe, Lock, Plus, Trash2, RefreshCw, KeyRound, CheckCircle2, Loader2, Send, Repeat
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,7 @@ import { useCurrentUser, INVITABLE } from '@/lib/permissions';
 import useLiveChat from '@/hooks/useLiveChat';
 import AddServiceModal from '@/components/client/AddServiceModal';
 import LogCommunicationModal from '@/components/client/LogCommunicationModal';
+import RecurringFollowUpModal from '@/components/clients/RecurringFollowUpModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import InvoiceGenerator from '@/components/invoices/InvoiceGenerator';
 
@@ -99,6 +100,8 @@ export default function ClientProfile() {
   const { data: activities = [] } = useQuery({ queryKey: ['activities', selectedClientId], queryFn: () => api.entities.Activity.filter({ client_id: selectedClientId }, '-activity_date'), enabled: !!selectedClientId });
   useLiveChat();
   const { data: communications = [] } = useQuery({ queryKey: ['communications', selectedClientId], queryFn: () => api.entities.Communication.filter({ client_id: selectedClientId }, '-communication_date'), enabled: !!selectedClientId, refetchInterval: 5000 });
+  const { data: recurringSequences = [] } = useQuery({ queryKey: ['recurringEmailSequences', selectedClientId], queryFn: () => api.entities.RecurringEmailSequence.filter({ client_id: selectedClientId }), enabled: !!selectedClientId, retry: false });
+  const [showRecurringEmail, setShowRecurringEmail] = useState(false);
   const { data: packages = [] } = useQuery({ queryKey: ['packages'], queryFn: () => api.entities.Package.list(), retry: false });
   const activePackages = packages.filter((p) => p.is_active !== false);
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: () => api.entities.User.list() });
@@ -181,6 +184,9 @@ export default function ClientProfile() {
   });
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
+  const currentRecurringSequence = recurringSequences.find((s) => s.status === 'active')
+    || [...recurringSequences].sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0]
+    || null;
   // A client's portal login is just a User row whose email matches their
   // Client record (see backend/app/routers/generic.py's _authorize_client) —
   // there's no separate "linked" flag, so this is the same lookup the
@@ -913,6 +919,29 @@ export default function ClientProfile() {
 
         {/* ── COMMUNICATIONS TAB ── */}
         <TabsContent value="communications">
+          <Card className="border-none shadow-md mb-6">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2"><Repeat className="w-5 h-5" />Recurring Follow-up</CardTitle>
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => setShowRecurringEmail(true)}>
+                {currentRecurringSequence?.status === 'active' ? 'Manage' : 'Start Recurring Follow-up'}
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {currentRecurringSequence?.status === 'active' ? (
+                <p className="text-sm text-muted-foreground">
+                  "{currentRecurringSequence.subject}" — every {currentRecurringSequence.interval_days} day
+                  {Number(currentRecurringSequence.interval_days) === 1 ? '' : 's'}, next send{' '}
+                  {currentRecurringSequence.next_send_date}. Sent {currentRecurringSequence.send_count || 0} time
+                  {Number(currentRecurringSequence.send_count) === 1 ? '' : 's'} so far.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No recurring follow-up running for this client.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="border-none shadow-md">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" />Client Communication Thread</CardTitle>
@@ -989,6 +1018,13 @@ export default function ClientProfile() {
             open={showLogCommunication}
             onClose={() => setShowLogCommunication(false)}
             clientId={selectedClientId}
+          />
+
+          <RecurringFollowUpModal
+            open={showRecurringEmail}
+            onClose={() => setShowRecurringEmail(false)}
+            client={selectedClient}
+            sequence={currentRecurringSequence}
           />
         </TabsContent>
 

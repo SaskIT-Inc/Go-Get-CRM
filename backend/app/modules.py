@@ -52,7 +52,7 @@ MODULES = {
     },
     "clients": {
         "label": "Clients",
-        "entities": {"Client", "Communication"},
+        "entities": {"Client", "Communication", "RecurringEmailSequence"},
         "director_implied": True,
     },
     "filings": {

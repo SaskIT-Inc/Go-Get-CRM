@@ -591,6 +591,21 @@ ENTITY_DEFINITIONS = {
             "is_active": (B, {"default": True}),
         },
     },
+    "RecurringEmailSequence": {
+        "table": "recurring_email_sequences",
+        "fields": {
+            "client_id": (S, {"nullable": False}),
+            "subject": (S, {"nullable": False}),
+            "body": (T, {"nullable": False}),
+            "interval_days": (N, {"default": 7}),
+            "next_send_date": (S, {"nullable": False}),
+            "last_sent_date": S,
+            "send_count": (N, {"default": 0}),
+            "max_sends": N,
+            "status": (S, {"default": "active"}),
+            "stopped_reason": S,
+        },
+    },
 }
 
 # Fields required on create, enforced by the generic router (mirrors each
@@ -611,6 +626,7 @@ REQUIRED_FIELDS = {
     "Package": ["name"],
     "TeamMemberBookingProfile": ["user_email"],
     "Communication": ["client_id", "communication_date"],
+    "RecurringEmailSequence": ["client_id", "subject", "body", "next_send_date"],
 }
 
 # Columns that must never be serialized back to API clients.

@@ -73,6 +73,7 @@ const ENTITY_NAMES = [
   'TaskTemplate', 'Payment', 'PaymentMethod',
   'Announcement', 'Conversation', 'Message', 'Notification', 'DocumentComment', 'Office',
   'Vendor', 'DocumentType', 'Package', 'TeamMemberBookingProfile', 'IndustryType', 'Communication',
+  'RecurringEmailSequence',
 ];
 
 const entities = Object.fromEntries(ENTITY_NAMES.map((name) => [name, createEntityClient(name)]));

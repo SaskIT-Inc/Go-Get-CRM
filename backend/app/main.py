@@ -1,11 +1,13 @@
 from pathlib import Path
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
+from .scheduler import send_due_recurring_emails
 from .routers import (
     auth,
     company,
@@ -54,6 +56,22 @@ app.include_router(ws_chat.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# Single uvicorn worker (see docker-compose.yml/Dockerfile) — an in-process
+# scheduler is safe here since there's only ever one process to run it.
+scheduler = AsyncIOScheduler()
+
+
+@app.on_event("startup")
+async def start_scheduler():
+    scheduler.add_job(send_due_recurring_emails, "interval", hours=1, id="recurring_email_sequences")
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+async def stop_scheduler():
+    scheduler.shutdown(wait=False)
 
 
 # In the single-container Docker build, the React app's production build is

@@ -506,6 +506,25 @@ async def create_entity(
                 )
         except Exception:
             pass
+    elif entity == "RecurringEmailSequence":
+        # Fires on the very first send (the frontend sends that email, then
+        # creates this row) — subsequent automated sends are notified from
+        # scheduler.py's send_due_recurring_emails instead.
+        try:
+            client_for_sequence = await db.get(MODELS["Client"], obj.client_id)
+            if client_for_sequence is not None:
+                recipients = await recipients_for_client(db, client_for_sequence, exclude_email=user.email)
+                await notify_specific_staff(
+                    db=db,
+                    actor_email=user.email,
+                    recipients=recipients,
+                    notif_type="recurring_email_sent",
+                    title="Recurring follow-up sent",
+                    body=f"{user.email} sent a follow-up to {client_for_sequence.legal_name}: \"{obj.subject}\"",
+                    link_url=f"/ClientProfile?client={obj.client_id}",
+                )
+        except Exception:
+            pass
     elif entity == "Conversation":
         try:
             await ws_manager.push(obj.participant_emails or [], {"type": "conversation"})

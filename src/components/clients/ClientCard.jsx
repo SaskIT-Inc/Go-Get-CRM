@@ -1,11 +1,22 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { User, Building2, Mail, FileText, UserCheck, Package } from 'lucide-react';
+import { User, Building2, Mail, FileText, UserCheck, Package, Repeat } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export default function ClientCard({ client, completionPct, assignedStaffName, filingCount, isDragging, onClick }) {
+function recurringStatusLabel(sequence) {
+  if (!sequence) return 'No recurring follow-up';
+  if (sequence.status === 'active') {
+    return `Every ${sequence.interval_days}d · next ${new Date(sequence.next_send_date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}`;
+  }
+  if (sequence.stopped_reason === 'client_replied') return 'Stopped — replied';
+  if (sequence.stopped_reason === 'max_sends_reached') return 'Stopped — limit reached';
+  return 'Stopped';
+}
+
+export default function ClientCard({ client, completionPct, assignedStaffName, filingCount, isDragging, onClick, recurringSequence, onOpenRecurringEmail }) {
   const packageLabel = client.active_package || client.monthly_package;
 
   return (
@@ -59,6 +70,27 @@ export default function ClientCard({ client, completionPct, assignedStaffName, f
             </div>
           )}
         </div>
+
+        {/* Recurring follow-up */}
+        {onOpenRecurringEmail && (
+          <div className="flex items-center justify-between gap-2 mb-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 min-w-0">
+              <Repeat className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{recurringStatusLabel(recurringSequence)}</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 flex-shrink-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenRecurringEmail(client);
+              }}
+            >
+              <Mail className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        )}
 
         {/* Assigned staff */}
         <div className="flex items-center justify-between text-xs">

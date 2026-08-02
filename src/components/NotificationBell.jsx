@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Clock,
   X,
+  Repeat,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -38,6 +39,7 @@ const TYPE_STYLES = {
   invoice_auto_generated: { Icon: DollarSign, bg: 'bg-emerald-100', color: 'text-emerald-600' },
   document_activity: { Icon: FileText, bg: 'bg-amber-100', color: 'text-amber-600' },
   client_message: { Icon: MessageSquare, bg: 'bg-pink-100', color: 'text-pink-600' },
+  recurring_email_sent: { Icon: Repeat, bg: 'bg-teal-100', color: 'text-teal-600' },
 };
 const DEFAULT_TYPE_STYLE = { Icon: Bell, bg: 'bg-slate-100', color: 'text-slate-500' };
 const REMINDER_STYLE = { Icon: Bell, bg: 'bg-blue-100', color: 'text-blue-600' };

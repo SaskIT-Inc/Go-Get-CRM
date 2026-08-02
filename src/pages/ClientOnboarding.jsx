@@ -21,6 +21,7 @@ import Step5Review from '@/components/intake/Step5Review';
 import Step6Checklist from '@/components/intake/Step6Checklist';
 import ClientCard from '@/components/clients/ClientCard';
 import ClientColumn from '@/components/clients/ClientColumn';
+import RecurringFollowUpModal from '@/components/clients/RecurringFollowUpModal';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -137,6 +138,22 @@ export default function ClientOnboarding() {
     queryKey: ['users'],
     queryFn: () => api.entities.User.list()
   });
+
+  const { data: recurringSequences = [] } = useQuery({
+    queryKey: ['recurringEmailSequences'],
+    queryFn: () => api.entities.RecurringEmailSequence.list(),
+    retry: false,
+  });
+
+  const [recurringEmailClient, setRecurringEmailClient] = useState(null);
+
+  const sequenceForClient = (clientId) => {
+    const forClient = recurringSequences.filter((s) => s.client_id === clientId);
+    if (forClient.length === 0) return null;
+    const active = forClient.find((s) => s.status === 'active');
+    if (active) return active;
+    return [...forClient].sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0];
+  };
 
   const createClientMutation = useMutation({
     mutationFn: async (clientData) => {
@@ -418,6 +435,8 @@ export default function ClientOnboarding() {
                                     assignedStaffName={staffUsers.find(u => u.email === client.assigned_to)?.full_name}
                                     isDragging={dragSnapshot.isDragging}
                                     onClick={() => window.open(`${createPageUrl('ClientProfile')}?client=${client.id}`, '_blank')}
+                                    recurringSequence={sequenceForClient(client.id)}
+                                    onOpenRecurringEmail={setRecurringEmailClient}
                                   />
                                 </div>
                               )}
@@ -434,6 +453,13 @@ export default function ClientOnboarding() {
           </DragDropContext>
         </TabsContent>
       </Tabs>
+
+      <RecurringFollowUpModal
+        open={!!recurringEmailClient}
+        onClose={() => setRecurringEmailClient(null)}
+        client={recurringEmailClient}
+        sequence={recurringEmailClient ? sequenceForClient(recurringEmailClient.id) : null}
+      />
     </div>
   );
 }
