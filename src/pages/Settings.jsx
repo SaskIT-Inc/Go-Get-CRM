@@ -25,7 +25,6 @@ import {
   Trash2,
   Pencil,
   Link as LinkIcon,
-  DollarSign,
   CalendarClock,
   AlertCircle,
   Briefcase
@@ -41,8 +40,6 @@ const EMPTY_COMPANY_PROFILE = {
 };
 
 const EMPTY_OFFICE = { name: '', address: '', city: '', province: '', phone: '', email: '', is_primary: false };
-
-const EMPTY_PACKAGE = { name: '', price: '', billing_frequency: 'Monthly', description: '' };
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -245,36 +242,6 @@ export default function Settings() {
     setEditingOfficeId(null);
     setNewOffice(EMPTY_OFFICE);
   };
-
-  // Packages — this firm's own pricing tiers/plans (empty until you add one;
-  // deliberately never seeded with defaults, since pricing is firm-specific).
-  const { data: packages = [] } = useQuery({
-    queryKey: ['packages'],
-    queryFn: () => api.entities.Package.list(),
-    enabled: isAdmin,
-  });
-  const [showAddPackage, setShowAddPackage] = useState(false);
-  const [newPackage, setNewPackage] = useState(EMPTY_PACKAGE);
-
-  const createPackageMutation = useMutation({
-    mutationFn: (data) => api.entities.Package.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success('Package added');
-      setShowAddPackage(false);
-      setNewPackage(EMPTY_PACKAGE);
-    },
-    onError: (error) => toast.error('Failed to add package: ' + error.message),
-  });
-
-  const deletePackageMutation = useMutation({
-    mutationFn: (id) => api.entities.Package.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success('Package removed');
-    },
-    onError: (error) => toast.error('Failed to remove package: ' + error.message),
-  });
 
   // Industries — this firm's own client-industry taxonomy, seeded with a
   // broad NAICS-inspired default set but fully editable (replaces the old
@@ -485,9 +452,6 @@ export default function Settings() {
           <Link to={createPageUrl('Database')}>
             <Button variant="outline" size="sm">Database</Button>
           </Link>
-          <Link to={createPageUrl('DatabaseServices')}>
-            <Button variant="outline" size="sm">Services</Button>
-          </Link>
           <Link to={createPageUrl('CRAForms')}>
             <Button variant="outline" size="sm">CRA Forms</Button>
           </Link>
@@ -513,10 +477,6 @@ export default function Settings() {
           <TabsTrigger value="offices" className="gap-2">
             <Building2 className="w-4 h-4" />
             Offices
-          </TabsTrigger>
-          <TabsTrigger value="packages" className="gap-2">
-            <DollarSign className="w-4 h-4" />
-            Packages
           </TabsTrigger>
           <TabsTrigger value="booking" className="gap-2">
             <CalendarClock className="w-4 h-4" />
@@ -873,125 +833,6 @@ export default function Settings() {
                 {editingOfficeId
                   ? (updateOfficeMutation.isPending ? 'Saving…' : 'Save Changes')
                   : (createOfficeMutation.isPending ? 'Adding…' : 'Add Office')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Packages */}
-        <TabsContent value="packages">
-          <Card className="border-none shadow-md">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5" />
-                Pricing Packages
-              </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                Your firm's own pricing tiers — these are what show up when assigning a package to a client. Every firm defines its own; nothing here is shared across firms.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {packages.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No packages yet. Add your first pricing tier below.
-                </p>
-              )}
-              {packages.map((pkg) => (
-                <Card key={pkg.id} className="border">
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-bold text-navy text-lg">{pkg.name}</h3>
-                        {!pkg.is_active && (
-                          <span className="text-xs bg-gray-500/10 text-gray-600 px-2 py-1 rounded mt-1 inline-block">
-                            Inactive
-                          </span>
-                        )}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deletePackageMutation.mutate(pkg.id)}
-                        disabled={deletePackageMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-muted-foreground mb-1">Price</p>
-                        <p className="font-medium">{pkg.price || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground mb-1">Billing</p>
-                        <p className="font-medium">{pkg.billing_frequency || '—'}</p>
-                      </div>
-                    </div>
-                    {pkg.description && (
-                      <p className="text-sm text-muted-foreground mt-3 pt-3 border-t">{pkg.description}</p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-              <Button variant="outline" className="w-full" onClick={() => setShowAddPackage(true)}>
-                + Add New Package
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <Dialog open={showAddPackage} onOpenChange={setShowAddPackage}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Pricing Package</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="package_name">Package Name</Label>
-                <Input
-                  id="package_name"
-                  value={newPackage.name}
-                  onChange={(e) => setNewPackage({ ...newPackage, name: e.target.value })}
-                  placeholder="Essential Plan"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="package_price">Price</Label>
-                  <Input
-                    id="package_price"
-                    value={newPackage.price}
-                    onChange={(e) => setNewPackage({ ...newPackage, price: e.target.value })}
-                    placeholder="$299"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="package_billing">Billing Frequency</Label>
-                  <Input
-                    id="package_billing"
-                    value={newPackage.billing_frequency}
-                    onChange={(e) => setNewPackage({ ...newPackage, billing_frequency: e.target.value })}
-                    placeholder="Monthly"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="package_description">Description</Label>
-                <Textarea
-                  id="package_description"
-                  value={newPackage.description}
-                  onChange={(e) => setNewPackage({ ...newPackage, description: e.target.value })}
-                  rows={3}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAddPackage(false)}>Cancel</Button>
-              <Button
-                onClick={() => createPackageMutation.mutate(newPackage)}
-                disabled={!newPackage.name || createPackageMutation.isPending}
-              >
-                {createPackageMutation.isPending ? 'Adding…' : 'Add Package'}
               </Button>
             </DialogFooter>
           </DialogContent>

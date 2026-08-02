@@ -21,17 +21,36 @@ export const SERVICE_OPTIONS = [
 
 // Monthly retainer packages — a client/lead picks at most one ongoing tier
 // (distinct from the one-time services above, which can be combined freely).
+// Bullets are one summary line per category (Bookkeeping/Tax/Payroll/
+// Support & Advisory), condensed from the firm's full feature-comparison
+// sheet so they stay readable in a compact selector card and in the Email
+// Lead reference block, which share this same data.
 export const MONTHLY_PACKAGES = [
   {
     name: 'Essential', price: '$299/month',
-    bullets: ['Quarterly bookkeeping rhythm', 'T2 corporate tax support', 'GST/PST filing support', 'Payroll support for smaller teams', 'QuickBooks support depending on setup'],
+    bullets: [
+      'Bookkeeping: up to 150 transactions/month, quarterly bookkeeping, QBO Basic subscription',
+      'Tax: T2 corporate tax & return filing, GST/PST remittance, 2 personal tax returns included, up to 10 T4/T4A/T5 slips',
+      'Payroll: up to 6 employees (no direct deposit)',
+      'Support: email / call / text, quarterly financial summary',
+    ],
   },
   {
     name: 'Standard', price: '$599/month',
-    bullets: ['Monthly bookkeeping and reconciliation', 'T2 corporate tax support', 'GST/PST filing support', 'Payroll & slip support for growing teams', 'Financial alerts & consultation support'],
+    bullets: [
+      'Bookkeeping: up to 350 transactions/month, monthly bookkeeping + reconciliation, QBO Standard subscription',
+      'Tax: T2 corporate tax & return filing, GST/PST remittance, 3 personal tax returns included, up to 20 T4/T4A/T5 slips',
+      'Payroll: up to 20 employees (no direct deposit)',
+      'Support: phone + 1hr consult/month, quarterly meetings, financial alerts, government benefit updates, basic industry insights',
+    ],
   },
   {
     name: 'Premium', price: '$1,499/month',
-    bullets: ['Weekly bookkeeping and reconciliation', 'Priority support', 'Higher transaction capacity', 'More slips & payroll complexity', 'CFO-level planning & advanced reporting'],
+    bullets: [
+      'Bookkeeping: up to 1,500 transactions/month, weekly bookkeeping + reconciliation, QBO subscription as required',
+      'Tax: T2 corporate tax & return filing, GST/PST remittance, 5 personal tax returns included, up to 100 T4/T4A/T5 slips',
+      'Payroll: up to 100 employees (no direct deposit)',
+      'Support: priority, unlimited access, CFO-level strategic planning, real-time financial alerts, early access to government benefit updates, tailored industry insights + benchmarks',
+    ],
   },
 ];

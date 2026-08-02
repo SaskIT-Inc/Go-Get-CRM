@@ -50,7 +50,8 @@ const navigation = [
       { name: 'Team Dashboard', page: 'TeamTaskDashboard', module: 'tasks' },
       { name: 'Calendar', page: 'CentralCalendar', module: 'calendar' },
       { name: 'Documents', page: 'Documents', module: 'documents' },
-      { name: 'Email', page: 'Email', module: 'email' }
+      { name: 'Email', page: 'Email', module: 'email' },
+      { name: 'Services', page: 'DatabaseServices', module: 'services' }
     ]
   },
   {
@@ -111,9 +112,11 @@ const CLIENT_NAVIGATION = [
 // Profile/Company Settings/Compliance/Invite User now live in the header
 // avatar dropdown instead of sidebar sections — see AvatarMenu below.
 // Sub-pages that used to hang off the old Settings/Compliance sidebar
-// sections (Email Settings, Database, Services, CRA Forms, Vendors, Document
-// Types, Workflow Templates, Filing Compliance) stay reachable via quick-link
-// buttons on the Settings and ComplianceAlerts pages themselves.
+// sections (Email Settings, Database, CRA Forms, Vendors, Document Types,
+// Workflow Templates, Filing Compliance) stay reachable via quick-link
+// buttons on the Settings and ComplianceAlerts pages themselves. Services
+// (and Packages, folded into the same page) moved into the MySpace group
+// above instead of staying a Settings quick-link.
 
 export default function Layout({ children, currentPageName }) {
   const navigate = useNavigate();

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { addDays, format } from 'date-fns';
 import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,8 +11,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Briefcase, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Briefcase, DollarSign, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const SERVICE_FREQUENCY_OPTIONS = ['Weekly', 'Monthly', 'Quarterly', 'Half Yearly', 'Annually'];
 
 const EMPTY_SERVICE = {
   service_category: '',
@@ -20,9 +24,10 @@ const EMPTY_SERVICE = {
   cra_form: '',
   cra_deadline: '',
   service_frequency: '',
+  period_end_date: '',
+  due_date: '',
   billing_frequency: '',
   workflow_template: '',
-  responsible_role: '',
   base_price: '',
   estimated_hours: '',
   notes: '',
@@ -30,11 +35,15 @@ const EMPTY_SERVICE = {
   requires_cpa: false,
 };
 
+const EMPTY_PACKAGE = { name: '', price: '', billing_frequency: 'Monthly', description: '' };
+
 export default function DatabaseServices() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_SERVICE);
+  const [showAddPackage, setShowAddPackage] = useState(false);
+  const [newPackage, setNewPackage] = useState(EMPTY_PACKAGE);
 
   const { data: services = [], isLoading } = useQuery({
     queryKey: ['services'],
@@ -44,6 +53,11 @@ export default function DatabaseServices() {
   const { data: craForms = [] } = useQuery({
     queryKey: ['cra-forms'],
     queryFn: () => api.craForms.list(),
+  });
+
+  const { data: packages = [] } = useQuery({
+    queryKey: ['packages'],
+    queryFn: () => api.entities.Package.list(),
   });
 
   const saveMutation = useMutation({
@@ -70,6 +84,26 @@ export default function DatabaseServices() {
       toast.success('Service removed');
     },
     onError: (error) => toast.error('Failed to remove service: ' + error.message),
+  });
+
+  const createPackageMutation = useMutation({
+    mutationFn: (data) => api.entities.Package.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['packages'] });
+      toast.success('Package added');
+      setShowAddPackage(false);
+      setNewPackage(EMPTY_PACKAGE);
+    },
+    onError: (error) => toast.error('Failed to add package: ' + error.message),
+  });
+
+  const deletePackageMutation = useMutation({
+    mutationFn: (id) => api.entities.Package.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['packages'] });
+      toast.success('Package removed');
+    },
+    onError: (error) => toast.error('Failed to remove package: ' + error.message),
   });
 
   const openAddForm = () => {
@@ -106,6 +140,16 @@ export default function DatabaseServices() {
     }));
   };
 
+  const handlePeriodEndDateChange = (value) => {
+    setForm((prev) => ({
+      ...prev,
+      period_end_date: value,
+      // Due Date tracks Period End Date + 15 days, but stays a plain editable
+      // input afterward so this default can be overridden before saving.
+      due_date: value ? format(addDays(new Date(value), 15), 'yyyy-MM-dd') : prev.due_date,
+    }));
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
@@ -113,231 +157,398 @@ export default function DatabaseServices() {
           <h1 className="text-4xl font-bold text-navy mb-2">Service Catalog</h1>
           <p className="text-muted-foreground">Master service catalog — pricing, CRA forms, and filing cadence</p>
         </div>
-        <Button onClick={openAddForm}>+ Add Service</Button>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" />
-          Loading services...
-        </div>
-      ) : services.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">No services yet. Add your first one above.</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {services.map((service) => (
-            <Card key={service.id} className="border-none shadow-md">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                      <Briefcase className="w-6 h-6 text-blue-600" />
+      <Tabs defaultValue="services" className="w-full">
+        <TabsList className="mb-6">
+          <TabsTrigger value="services" className="gap-2">
+            <Briefcase className="w-4 h-4" />
+            Services
+          </TabsTrigger>
+          <TabsTrigger value="packages" className="gap-2">
+            <DollarSign className="w-4 h-4" />
+            Packages
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="services">
+          <div className="mb-6 flex justify-end">
+            <Button onClick={openAddForm}>+ Add Service</Button>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" />
+              Loading services...
+            </div>
+          ) : services.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">No services yet. Add your first one above.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {services.map((service) => (
+                <Card key={service.id} className="border-none shadow-md">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                          <Briefcase className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg">{service.service_name}</CardTitle>
+                          {service.service_category && (
+                            <Badge variant="secondary" className="mt-1">{service.service_category}</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {!service.is_active && <Badge variant="outline">Inactive</Badge>}
+                        <Button variant="ghost" size="icon" onClick={() => openEditForm(service)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteMutation.mutate(service.id)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-lg">{service.service_name}</CardTitle>
-                      {service.service_category && (
-                        <Badge variant="secondary" className="mt-1">{service.service_category}</Badge>
-                      )}
-                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {service.cra_form && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">CRA Form</span>
+                        <span className="font-medium">{service.cra_form}</span>
+                      </div>
+                    )}
+                    {service.cra_deadline && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Deadline</span>
+                        <span className="font-medium">{service.cra_deadline}</span>
+                      </div>
+                    )}
+                    {service.service_frequency && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Frequency</span>
+                        <span className="font-medium">{service.service_frequency}</span>
+                      </div>
+                    )}
+                    {service.period_end_date && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Period End</span>
+                        <span className="font-medium">{service.period_end_date}</span>
+                      </div>
+                    )}
+                    {service.due_date && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Due Date</span>
+                        <span className="font-medium">{service.due_date}</span>
+                      </div>
+                    )}
+                    {service.base_price != null && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Base Price</span>
+                        <span className="font-medium">${Number(service.base_price).toFixed(2)}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          <Dialog open={showForm} onOpenChange={(open) => (open ? setShowForm(true) : closeForm())}>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editingId ? 'Edit Service' : 'Add Service'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="service_name">Service Name *</Label>
+                    <Input
+                      id="service_name"
+                      value={form.service_name}
+                      onChange={(e) => setForm({ ...form, service_name: e.target.value })}
+                      placeholder="Corporate Tax Return"
+                    />
                   </div>
-                  <div className="flex items-center gap-1">
-                    {!service.is_active && <Badge variant="outline">Inactive</Badge>}
-                    <Button variant="ghost" size="icon" onClick={() => openEditForm(service)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteMutation.mutate(service.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
+                  <div className="space-y-2">
+                    <Label htmlFor="service_category">Category *</Label>
+                    <Input
+                      id="service_category"
+                      value={form.service_category}
+                      onChange={(e) => setForm({ ...form, service_category: e.target.value })}
+                      placeholder="Corporate Tax"
+                    />
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {service.cra_form && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">CRA Form</span>
-                    <span className="font-medium">{service.cra_form}</span>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>CRA Form</Label>
+                    <Select value={form.cra_form || undefined} onValueChange={handleCraFormChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select CRA form..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {craForms.map((cf) => (
+                          <SelectItem key={cf.id} value={cf.code}>
+                            {cf.code} — {cf.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
-                {service.cra_deadline && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Deadline</span>
-                    <span className="font-medium">{service.cra_deadline}</span>
+                  <div className="space-y-2">
+                    <Label htmlFor="cra_deadline">Filing Deadline</Label>
+                    <Input
+                      id="cra_deadline"
+                      value={form.cra_deadline}
+                      onChange={(e) => setForm({ ...form, cra_deadline: e.target.value })}
+                      placeholder="April 30"
+                    />
                   </div>
-                )}
-                {service.service_frequency && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Frequency</span>
-                    <span className="font-medium">{service.service_frequency}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Service Frequency</Label>
+                    <Select
+                      value={form.service_frequency || undefined}
+                      onValueChange={(value) => setForm({ ...form, service_frequency: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select frequency..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SERVICE_FREQUENCY_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
-                {service.base_price != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Base Price</span>
-                    <span className="font-medium">${Number(service.base_price).toFixed(2)}</span>
+                  <div className="space-y-2">
+                    <Label htmlFor="billing_frequency">Billing Frequency</Label>
+                    <Input
+                      id="billing_frequency"
+                      value={form.billing_frequency}
+                      onChange={(e) => setForm({ ...form, billing_frequency: e.target.value })}
+                      placeholder="One-time"
+                    />
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                </div>
 
-      <Dialog open={showForm} onOpenChange={(open) => (open ? setShowForm(true) : closeForm())}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Service' : 'Add Service'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="service_name">Service Name *</Label>
-                <Input
-                  id="service_name"
-                  value={form.service_name}
-                  onChange={(e) => setForm({ ...form, service_name: e.target.value })}
-                  placeholder="Corporate Tax Return"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="service_category">Category *</Label>
-                <Input
-                  id="service_category"
-                  value={form.service_category}
-                  onChange={(e) => setForm({ ...form, service_category: e.target.value })}
-                  placeholder="Corporate Tax"
-                />
-              </div>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="period_end_date">Period End Date</Label>
+                    <Input
+                      id="period_end_date"
+                      type="date"
+                      value={form.period_end_date}
+                      onChange={(e) => handlePeriodEndDateChange(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="due_date">Due Date</Label>
+                    <Input
+                      id="due_date"
+                      type="date"
+                      value={form.due_date}
+                      onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Defaults to 15 days after Period End Date — editable.</p>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>CRA Form</Label>
-                <Select value={form.cra_form || undefined} onValueChange={handleCraFormChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select CRA form..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {craForms.map((cf) => (
-                      <SelectItem key={cf.id} value={cf.code}>
-                        {cf.code} — {cf.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="cra_deadline">Filing Deadline</Label>
-                <Input
-                  id="cra_deadline"
-                  value={form.cra_deadline}
-                  onChange={(e) => setForm({ ...form, cra_deadline: e.target.value })}
-                  placeholder="April 30"
-                />
-              </div>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="base_price">Base Price ($)</Label>
+                    <Input
+                      id="base_price"
+                      type="number"
+                      step="0.01"
+                      value={form.base_price}
+                      onChange={(e) => setForm({ ...form, base_price: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="estimated_hours">Estimated Hours</Label>
+                    <Input
+                      id="estimated_hours"
+                      type="number"
+                      step="0.25"
+                      value={form.estimated_hours}
+                      onChange={(e) => setForm({ ...form, estimated_hours: e.target.value })}
+                    />
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="service_frequency">Service Frequency</Label>
-                <Input
-                  id="service_frequency"
-                  value={form.service_frequency}
-                  onChange={(e) => setForm({ ...form, service_frequency: e.target.value })}
-                  placeholder="Annual"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="billing_frequency">Billing Frequency</Label>
-                <Input
-                  id="billing_frequency"
-                  value={form.billing_frequency}
-                  onChange={(e) => setForm({ ...form, billing_frequency: e.target.value })}
-                  placeholder="One-time"
-                />
-              </div>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    rows={3}
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="base_price">Base Price ($)</Label>
-                <Input
-                  id="base_price"
-                  type="number"
-                  step="0.01"
-                  value={form.base_price}
-                  onChange={(e) => setForm({ ...form, base_price: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="estimated_hours">Estimated Hours</Label>
-                <Input
-                  id="estimated_hours"
-                  type="number"
-                  step="0.25"
-                  value={form.estimated_hours}
-                  onChange={(e) => setForm({ ...form, estimated_hours: e.target.value })}
-                />
-              </div>
-            </div>
+                <div className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p className="font-medium text-navy text-sm">Active</p>
+                    <p className="text-xs text-muted-foreground">Inactive services are hidden from selectors</p>
+                  </div>
+                  <Switch
+                    checked={form.is_active}
+                    onCheckedChange={(checked) => setForm({ ...form, is_active: checked })}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="responsible_role">Responsible Role</Label>
-              <Input
-                id="responsible_role"
-                value={form.responsible_role}
-                onChange={(e) => setForm({ ...form, responsible_role: e.target.value })}
-                placeholder="Bookkeeper"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                rows={3}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-3 border rounded-lg">
-              <div>
-                <p className="font-medium text-navy text-sm">Active</p>
-                <p className="text-xs text-muted-foreground">Inactive services are hidden from selectors</p>
+                <div className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p className="font-medium text-navy text-sm">Requires CPA</p>
+                    <p className="text-xs text-muted-foreground">Flags this service as needing a CPA-designated preparer</p>
+                  </div>
+                  <Switch
+                    checked={form.requires_cpa}
+                    onCheckedChange={(checked) => setForm({ ...form, requires_cpa: checked })}
+                  />
+                </div>
               </div>
-              <Switch
-                checked={form.is_active}
-                onCheckedChange={(checked) => setForm({ ...form, is_active: checked })}
-              />
-            </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={closeForm}>Cancel</Button>
+                <Button
+                  onClick={() => saveMutation.mutate(form)}
+                  disabled={!form.service_name || !form.service_category || saveMutation.isPending}
+                >
+                  {saveMutation.isPending ? 'Saving…' : editingId ? 'Save Changes' : 'Add Service'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
 
-            <div className="flex items-center justify-between p-3 border rounded-lg">
-              <div>
-                <p className="font-medium text-navy text-sm">Requires CPA</p>
-                <p className="text-xs text-muted-foreground">Flags this service as needing a CPA-designated preparer</p>
+        <TabsContent value="packages">
+          <Card className="border-none shadow-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="w-5 h-5" />
+                Pricing Packages
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your firm's own pricing tiers — these are what show up when assigning a package to a client.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {packages.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No packages yet. Add your first pricing tier below.
+                </p>
+              )}
+              {packages.map((pkg) => (
+                <Card key={pkg.id} className="border">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h3 className="font-bold text-navy text-lg">{pkg.name}</h3>
+                        {!pkg.is_active && (
+                          <span className="text-xs bg-gray-500/10 text-gray-600 px-2 py-1 rounded mt-1 inline-block">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deletePackageMutation.mutate(pkg.id)}
+                        disabled={deletePackageMutation.isPending}
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground mb-1">Price</p>
+                        <p className="font-medium">{pkg.price || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground mb-1">Billing</p>
+                        <p className="font-medium">{pkg.billing_frequency || '—'}</p>
+                      </div>
+                    </div>
+                    {pkg.description && (
+                      <p className="text-sm text-muted-foreground mt-3 pt-3 border-t">{pkg.description}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+              <Button variant="outline" className="w-full" onClick={() => setShowAddPackage(true)}>
+                + Add New Package
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Dialog open={showAddPackage} onOpenChange={setShowAddPackage}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Pricing Package</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="package_name">Package Name</Label>
+                  <Input
+                    id="package_name"
+                    value={newPackage.name}
+                    onChange={(e) => setNewPackage({ ...newPackage, name: e.target.value })}
+                    placeholder="Essential Plan"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="package_price">Price</Label>
+                    <Input
+                      id="package_price"
+                      value={newPackage.price}
+                      onChange={(e) => setNewPackage({ ...newPackage, price: e.target.value })}
+                      placeholder="$299"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="package_billing">Billing Frequency</Label>
+                    <Input
+                      id="package_billing"
+                      value={newPackage.billing_frequency}
+                      onChange={(e) => setNewPackage({ ...newPackage, billing_frequency: e.target.value })}
+                      placeholder="Monthly"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="package_description">Description</Label>
+                  <Textarea
+                    id="package_description"
+                    value={newPackage.description}
+                    onChange={(e) => setNewPackage({ ...newPackage, description: e.target.value })}
+                    rows={3}
+                  />
+                </div>
               </div>
-              <Switch
-                checked={form.requires_cpa}
-                onCheckedChange={(checked) => setForm({ ...form, requires_cpa: checked })}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeForm}>Cancel</Button>
-            <Button
-              onClick={() => saveMutation.mutate(form)}
-              disabled={!form.service_name || !form.service_category || saveMutation.isPending}
-            >
-              {saveMutation.isPending ? 'Saving…' : editingId ? 'Save Changes' : 'Add Service'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowAddPackage(false)}>Cancel</Button>
+                <Button
+                  onClick={() => createPackageMutation.mutate(newPackage)}
+                  disabled={!newPackage.name || createPackageMutation.isPending}
+                >
+                  {createPackageMutation.isPending ? 'Adding…' : 'Add Package'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

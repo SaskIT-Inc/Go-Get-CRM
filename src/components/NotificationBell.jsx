@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/apiClient';
@@ -16,6 +16,7 @@ import {
   FileText,
   MessageSquare,
   Clock,
+  X,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -97,11 +98,49 @@ function splitActorFromBody(body, actorEmail) {
   return { actorLabel: null, rest: body || '' };
 }
 
+// Reminders are computed live from Task/Lead data, not stored rows, so they
+// have no server-side is_read state to flip. "Dismissed" is tracked locally
+// per user instead, keyed by id + due-date — if the same task/lead becomes
+// overdue again on a DIFFERENT date later, that's a fresh key and it
+// resurfaces rather than staying hidden forever.
+function dismissedStorageKey(email) {
+  return `notif_dismissed_reminders_${email || 'anon'}`;
+}
+
+function loadDismissedReminders(email) {
+  try {
+    const raw = localStorage.getItem(dismissedStorageKey(email));
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
 export default function NotificationBell() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('all');
   const { data: user } = useCurrentUser();
+  const [dismissedReminderKeys, setDismissedReminderKeys] = useState(() => new Set());
+
+  useEffect(() => {
+    if (user?.email) setDismissedReminderKeys(loadDismissedReminders(user.email));
+  }, [user?.email]);
+
+  const persistDismissed = (nextSet) => {
+    setDismissedReminderKeys(nextSet);
+    if (user?.email) {
+      try {
+        localStorage.setItem(dismissedStorageKey(user.email), JSON.stringify([...nextSet]));
+      } catch {
+        // best-effort only — a full/blocked localStorage just means dismissals don't persist across reloads
+      }
+    }
+  };
+
+  const dismissReminder = (key) => {
+    persistDismissed(new Set([...dismissedReminderKeys, key]));
+  };
 
   const { data: notifications = [] } = useQuery({
     queryKey: ['notifications'],
@@ -169,6 +208,7 @@ export default function NotificationBell() {
       .filter((t) => t.due_date && t.status !== 'Completed' && new Date(t.due_date) <= new Date())
       .map((t) => ({
         id: `task-reminder-${t.id}`,
+        dismissKey: `task-reminder-${t.id}:${t.due_date}`,
         kind: 'reminder',
         ...REMINDER_STYLE,
         actorLabel: null,
@@ -186,6 +226,7 @@ export default function NotificationBell() {
       )
       .map((l) => ({
         id: `lead-reminder-${l.id}`,
+        dismissKey: `lead-reminder-${l.id}:${l.next_follow_up}`,
         kind: 'reminder',
         ...REMINDER_STYLE,
         actorLabel: null,
@@ -196,6 +237,11 @@ export default function NotificationBell() {
       }));
     return [...taskReminders, ...leadReminders].sort((a, b) => new Date(a.sortKey) - new Date(b.sortKey));
   }, [myTasks, myLeads]);
+
+  const visibleReminders = useMemo(
+    () => reminders.filter((r) => !dismissedReminderKeys.has(r.dismissKey)),
+    [reminders, dismissedReminderKeys]
+  );
 
   const notificationItems = useMemo(
     () =>
@@ -221,15 +267,23 @@ export default function NotificationBell() {
   );
 
   const unreadNotifCount = notificationItems.filter((n) => !n.isRead).length;
-  const badgeCount = unreadNotifCount + reminders.length;
+  const badgeCount = unreadNotifCount + visibleReminders.length;
+  const hasAnyUnread = unreadNotifCount > 0 || visibleReminders.length > 0;
 
   const taskNotifItems = notificationItems.filter((n) => n.type?.startsWith('task'));
 
   const listForTab = (() => {
     if (activeTab === 'tasks') return { unread: taskNotifItems.filter((n) => !n.isRead), read: taskNotifItems.filter((n) => n.isRead) };
-    if (activeTab === 'reminders') return { unread: reminders, read: [] };
-    return { unread: [...reminders, ...notificationItems.filter((n) => !n.isRead)], read: notificationItems.filter((n) => n.isRead) };
+    if (activeTab === 'reminders') return { unread: visibleReminders, read: [] };
+    return { unread: [...visibleReminders, ...notificationItems.filter((n) => !n.isRead)], read: notificationItems.filter((n) => n.isRead) };
   })();
+
+  const handleMarkAllRead = () => {
+    if (unreadNotifCount > 0) markAllReadMutation.mutate();
+    if (visibleReminders.length > 0) {
+      persistDismissed(new Set([...dismissedReminderKeys, ...visibleReminders.map((r) => r.dismissKey)]));
+    }
+  };
 
   const handleSelect = (item) => {
     if (item.kind === 'notification' && !item.isRead) markReadMutation.mutate(item.id);
@@ -276,6 +330,19 @@ export default function NotificationBell() {
           <Check className="w-3.5 h-3.5" />
         </div>
       )}
+      {item.kind === 'reminder' && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            dismissReminder(item.dismissKey);
+          }}
+          title="Dismiss"
+          className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[10px] font-semibold pl-2 pr-2.5 py-1.5 rounded-md flex items-center gap-1 shadow-lg whitespace-nowrap"
+        >
+          <X className="w-3 h-3" /> Dismiss
+        </button>
+      )}
     </div>
   );
 
@@ -313,12 +380,12 @@ export default function NotificationBell() {
           </div>
           <button
             type="button"
-            onClick={() => markAllReadMutation.mutate()}
-            disabled={unreadNotifCount === 0 || markAllReadMutation.isPending}
-            title={unreadNotifCount === 0 ? 'No unread notifications' : 'Mark all as read'}
+            onClick={handleMarkAllRead}
+            disabled={!hasAnyUnread || markAllReadMutation.isPending}
+            title={hasAnyUnread ? 'Mark all as read' : 'No unread notifications'}
             className={cn(
               'text-xs font-semibold flex items-center gap-1 transition-colors',
-              unreadNotifCount === 0 || markAllReadMutation.isPending
+              !hasAnyUnread || markAllReadMutation.isPending
                 ? 'text-slate-300 cursor-not-allowed'
                 : 'text-slate-400 hover:text-primary'
             )}

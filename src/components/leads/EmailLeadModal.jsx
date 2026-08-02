@@ -61,11 +61,12 @@ function buildEmailTemplates(lead) {
 // Single source of truth for the "Reference:" block — the plain-text version
 // used for the live in-modal preview, and buildReferenceHtml() below (same
 // selections, HTML output) used for the actual email at send time.
-function buildReferenceLines({ selectedPackageNames, customBundles }) {
+function buildReferenceLines({ selectedPackageNames, packageOverrides, customBundles }) {
   const lines = [];
 
   MONTHLY_PACKAGES.filter((pkg) => selectedPackageNames.includes(pkg.name)).forEach((pkg) => {
-    lines.push(`- ${pkg.name} (${pkg.price})`);
+    const priceLabel = packageOverrides[pkg.name]?.trim() || pkg.price;
+    lines.push(`- ${pkg.name} (${priceLabel})`);
     pkg.bullets.forEach((b) => lines.push(`  • ${b}`));
   });
 
@@ -98,14 +99,15 @@ function escapeHtml(str) {
 
 // HTML counterpart of buildReferenceLines — real <ul>/<li> markup instead of
 // hyphen/bullet text, since the actual email is sent as HTML.
-function buildReferenceHtml({ selectedPackageNames, customBundles }) {
+function buildReferenceHtml({ selectedPackageNames, packageOverrides, customBundles }) {
   const items = [];
 
   MONTHLY_PACKAGES.filter((pkg) => selectedPackageNames.includes(pkg.name)).forEach((pkg) => {
+    const priceLabel = packageOverrides[pkg.name]?.trim() || pkg.price;
     items.push(`
       <li style="margin:0 0 12px;">
         <span style="font-weight:700; color:#0f172a;">${escapeHtml(pkg.name)}</span>
-        <span style="color:#334155;"> — ${escapeHtml(pkg.price)}</span>
+        <span style="color:#334155;"> — ${escapeHtml(priceLabel)}</span>
         <ul style="margin:4px 0 0; padding-left:18px; color:#475569;">
           ${pkg.bullets.map((b) => `<li style="margin:0 0 2px;">${escapeHtml(b)}</li>`).join('')}
         </ul>
@@ -176,6 +178,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
   const [body, setBody] = useState('');
   const [templateKey, setTemplateKey] = useState('follow_up');
   const [selectedPackageNames, setSelectedPackageNames] = useState([]);
+  const [packageOverrides, setPackageOverrides] = useState({});
   const [builderOpen, setBuilderOpen] = useState(false);
   const [draftServiceNames, setDraftServiceNames] = useState([]);
   const [draftValue, setDraftValue] = useState('');
@@ -201,6 +204,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       setSubject(defaultTemplate.subject);
       setBody(defaultTemplate.body);
       setSelectedPackageNames([]);
+      setPackageOverrides({});
       setBuilderOpen(false);
       setDraftServiceNames([]);
       setDraftValue('');
@@ -220,6 +224,18 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
     setSelectedPackageNames((prev) =>
       prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]
     );
+    // Deselecting a package clears any custom price set for it, so it
+    // doesn't silently reappear pre-filled if the package is picked again.
+    setPackageOverrides((prev) => {
+      if (!(name in prev)) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
+  const setPackageOverride = (name, value) => {
+    setPackageOverrides((prev) => ({ ...prev, [name]: value }));
   };
 
   const toggleDraftServiceName = (name) => {
@@ -245,7 +261,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
     setCustomBundles((prev) => prev.filter((b) => b.id !== id));
   };
 
-  const referenceLines = buildReferenceLines({ selectedPackageNames, customBundles });
+  const referenceLines = buildReferenceLines({ selectedPackageNames, packageOverrides, customBundles });
 
   const handleSend = async () => {
     if (!lead?.email) {
@@ -257,7 +273,7 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
       return;
     }
 
-    const referenceHtml = buildReferenceHtml({ selectedPackageNames, customBundles });
+    const referenceHtml = buildReferenceHtml({ selectedPackageNames, packageOverrides, customBundles });
     const finalHtml = `
 <div style="font-family:Arial,Helvetica,sans-serif; color:#1e293b; max-width:560px; margin:0 auto;">
   ${textToHtmlParagraphs(body)}
@@ -360,6 +376,28 @@ export default function EmailLeadModal({ lead, open, onClose, onSent }) {
                 Other Services
               </button>
             </div>
+
+            {selectedPackageNames.length > 0 && (
+              <div className="space-y-2">
+                {selectedPackageNames.map((name) => {
+                  const pkg = MONTHLY_PACKAGES.find((p) => p.name === name);
+                  if (!pkg) return null;
+                  return (
+                    <div key={name} className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50">
+                      <span className="text-xs font-medium text-slate-600 flex-shrink-0">
+                        {pkg.name} <span className="text-slate-400">default {pkg.price}</span>
+                      </span>
+                      <Input
+                        value={packageOverrides[name] || ''}
+                        onChange={(e) => setPackageOverride(name, e.target.value)}
+                        placeholder={`Custom value (optional) — overrides ${pkg.price}`}
+                        className="h-8 text-xs bg-white flex-1"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {customBundles.length > 0 && (
               <div className="flex flex-wrap gap-2">

@@ -23,19 +23,18 @@ import {
 import { toast } from 'sonner';
 import LeadActivityFeed from './LeadActivityFeed';
 import EmailLeadModal from './EmailLeadModal';
+import MultiEmailInput from '@/components/email/MultiEmailInput';
 import { COLD_STAGES, HOT_STAGES } from '@/lib/leadStages';
 
 // "Other team member" doesn't have a TeamMemberBookingProfile — selecting it
-// switches to free-text name/contact instead of a checkbox from the roster.
+// switches to a free-text multi-email input instead of a checkbox from the
+// roster, since more than one extra person can be looped in.
 const OTHER_TEAM_MEMBER = '__other__';
 
-// The client-facing confirmation always cc's these two, regardless of who's
-// actually assigned to the meeting.
-const APPOINTMENT_CC_EMAILS = ['cem@go-get.ca', 'shorif@go-get.ca'];
-
-// Standing Zoom link used for every online meeting unless a specific one is
-// typed into the optional Meeting Link field.
-const PERMANENT_MEETING_LINK = 'https://zoom.us/j/8347084815?pwd=OVhOR2p4a3pnbmdTcHdpWTdSelNQQT09';
+// cem@go-get.ca / shorif@go-get.ca are two of the checkable "Assigned Team
+// Member(s)" options — the confirmation email only cc's whichever of these
+// two are actually checked, not both automatically.
+const APPOINTMENT_CC_CANDIDATE_EMAILS = ['cem@go-get.ca', 'shorif@go-get.ca'];
 
 // Booking slots: Monday–Friday, 10:00 AM – 5:30 PM, 30 minutes each.
 const BOOKABLE_WEEKDAYS = [1, 2, 3, 4, 5]; // Date#getDay(): 0=Sun ... 6=Sat
@@ -68,8 +67,8 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
   const [meetingType, setMeetingType] = useState('Online');
   const [officeId, setOfficeId] = useState('');
   const [assignedTeamMemberEmails, setAssignedTeamMemberEmails] = useState([]);
-  const [otherTeamMemberContact, setOtherTeamMemberContact] = useState('');
-  const [otherMeetingLink, setOtherMeetingLink] = useState('');
+  const [otherTeamMemberEmails, setOtherTeamMemberEmails] = useState([]);
+  const [onlineMeetingDetails, setOnlineMeetingDetails] = useState('');
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentTime, setAppointmentTime] = useState('');
 
@@ -85,13 +84,10 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
 
   // Booking an appointment is how a lead GETS TO "Appointment Set" — so the
   // form has to be available from New Lead (and any other non-terminal
-  // stage), not gated behind already being there. Once a lead IS at
-  // "Appointment Set", showing the form again is redundant — show the
-  // already-booked details instead. Data-fetching stays gated on the broader
-  // "not a closed/lost/false end-state" condition since both modes need it.
+  // stage), not gated behind already being there. Data-fetching stays gated
+  // on the broader "not a closed/lost/false end-state" condition since both
+  // modes need it.
   const canBookAppointment = !['Closed Leads', 'Lost Leads', 'False Leads'].includes(editedLead.stage);
-  const isAppointmentBooked = editedLead.stage === 'Appointment Set';
-  const showBookingForm = canBookAppointment && !isAppointmentBooked;
 
   const { data: offices = [] } = useQuery({
     queryKey: ['offices'],
@@ -119,11 +115,17 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
     enabled: canBookAppointment,
   });
 
-  // Most recent appointment on record for this lead — shown read-only once
-  // the lead is at "Appointment Set" instead of the booking form.
+  // Most recent appointment on record for this lead — shown read-only
+  // instead of the booking form as soon as one actually exists, regardless
+  // of which non-terminal stage the lead has since moved to (e.g. Estimate
+  // Sent). Keying this off the stage name ("Appointment Set" only) was the
+  // bug: a lead that progresses past that stage would see the booking form
+  // again instead of its already-booked details.
   const leadAppointment = [...existingAppointments]
     .filter((a) => a.lead_id === lead?.id)
     .sort((a, b) => new Date(b.created_date) - new Date(a.created_date))[0];
+  const isAppointmentBooked = !!leadAppointment;
+  const showBookingForm = canBookAppointment && !isAppointmentBooked;
 
   const assignedOffice = activeOffices.find((o) => o.id === officeId);
 
@@ -163,8 +165,11 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
       if (assignedTeamMemberEmails.length === 0 || !appointmentDate || !appointmentTime) {
         throw new Error('Pick at least one assigned team member, a date, and a time first');
       }
-      if (includesOther && !otherTeamMemberContact.trim()) {
-        throw new Error("Enter the other team member's name or email first");
+      if (includesOther && otherTeamMemberEmails.length === 0) {
+        throw new Error("Enter at least one other team member's email first");
+      }
+      if (meetingType === 'Online' && !onlineMeetingDetails.trim()) {
+        throw new Error('Enter the meeting link, ID, and passcode first');
       }
 
       const dayAbbr = DAY_ABBR[new Date(`${appointmentDate}T00:00:00`).getDay()];
@@ -191,9 +196,9 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
 
       const assignedLabels = [
         ...assignedProfiles.map((p) => p.user_email),
-        ...(includesOther && otherTeamMemberContact.trim() ? [otherTeamMemberContact.trim()] : []),
+        ...(includesOther ? otherTeamMemberEmails : []),
       ];
-      const onlineMeetingLink = meetingType === 'Online' ? (otherMeetingLink.trim() || PERMANENT_MEETING_LINK) : '';
+      const onlineMeetingLink = meetingType === 'Online' ? onlineMeetingDetails.trim() : '';
 
       const appointment = await api.entities.Appointment.create({
         title: `Meeting with ${lead.contact_name}`,
@@ -211,7 +216,7 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
 
       const assignedDisplayNames = [
         ...assignedProfiles.map((p) => staffUsers.find((u) => u.email === p.user_email)?.full_name || p.user_email),
-        ...(includesOther && otherTeamMemberContact.trim() ? [otherTeamMemberContact.trim()] : []),
+        ...(includesOther ? otherTeamMemberEmails : []),
       ];
       const assignedDisplayName = assignedDisplayNames.join(', ') || 'our team';
       const whenText = startDateTime.toLocaleString('en-CA', {
@@ -223,12 +228,16 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
         : (onlineMeetingLink || 'Will be shared before the meeting');
 
       if (lead.email) {
-        const ccList = APPOINTMENT_CC_EMAILS.filter((e) => e.toLowerCase() !== lead.email.toLowerCase());
+        // Only cc whichever of cem/shorif are actually checked in "Assigned
+        // Team Member(s)" — previously both were cc'd unconditionally.
+        const ccList = APPOINTMENT_CC_CANDIDATE_EMAILS.filter(
+          (e) => assignedTeamMemberEmails.includes(e) && e.toLowerCase() !== lead.email.toLowerCase()
+        );
+        const escapeHtml = (str) =>
+          String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const meetingRow = meetingType === 'Online'
-          ? `<tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Meeting Link</td><td style="padding:6px 0; font-weight:600;">${
-              onlineMeetingLink
-                ? `<a href="${onlineMeetingLink}" style="color:#1d4ed8;">${onlineMeetingLink}</a>`
-                : 'Will be shared before the meeting'
+          ? `<tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap; vertical-align:top;">Meeting Details</td><td style="padding:6px 0; font-weight:600; white-space:pre-wrap;">${
+              onlineMeetingLink ? escapeHtml(onlineMeetingLink) : 'Will be shared before the meeting'
             }</td></tr>`
           : `<tr><td style="padding:6px 12px 6px 0; color:#64748b; white-space:nowrap;">Location</td><td style="padding:6px 0; font-weight:600;">${whereText}</td></tr>`;
 
@@ -572,21 +581,24 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
 
                 {includesOther && (
                   <div className="space-y-2">
-                    <Label className="text-xs">Other Team Member Name / Email</Label>
-                    <Input
-                      value={otherTeamMemberContact}
-                      onChange={(e) => setOtherTeamMemberContact(e.target.value)}
-                      placeholder="e.g. Jane Doe or jane@go-get.ca"
-                      className="bg-white"
+                    <Label className="text-xs">Other Team Member Email(s)</Label>
+                    <MultiEmailInput
+                      value={otherTeamMemberEmails}
+                      onChange={setOtherTeamMemberEmails}
+                      placeholder="e.g. jane@go-get.ca"
                     />
                   </div>
                 )}
 
-                {assignedTeamMemberEmails.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Confirmation will be emailed to {lead.email || 'the client (no email on file)'}, cc: {APPOINTMENT_CC_EMAILS.join(', ')}.
-                  </p>
-                )}
+                {assignedTeamMemberEmails.length > 0 && (() => {
+                  const ccPreview = APPOINTMENT_CC_CANDIDATE_EMAILS.filter((e) => assignedTeamMemberEmails.includes(e));
+                  return (
+                    <p className="text-xs text-muted-foreground">
+                      Confirmation will be emailed to {lead.email || 'the client (no email on file)'}
+                      {ccPreview.length > 0 ? `, cc: ${ccPreview.join(', ')}` : ' (no cc — cem/shorif not checked above)'}.
+                    </p>
+                  );
+                })()}
 
                 {meetingType === 'In-Person' ? (
                   <div className="space-y-2">
@@ -604,11 +616,12 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Label className="text-xs">Meeting Link (optional)</Label>
-                    <Input
-                      value={otherMeetingLink}
-                      onChange={(e) => setOtherMeetingLink(e.target.value)}
-                      placeholder="Paste a meeting link, or leave blank to use the standing Zoom link"
+                    <Label className="text-xs">Meeting Link, ID &amp; Passcode</Label>
+                    <Textarea
+                      value={onlineMeetingDetails}
+                      onChange={(e) => setOnlineMeetingDetails(e.target.value)}
+                      placeholder={'Paste the meeting link, ID, and passcode, e.g.\nhttps://zoom.us/j/...\nMeeting ID: 123 456 7890\nPasscode: abc123'}
+                      rows={3}
                       className="bg-white"
                     />
                   </div>
@@ -666,7 +679,8 @@ export default function LeadDetailsModal({ lead, open, onClose }) {
                     !appointmentDate ||
                     !appointmentTime ||
                     isWeekendDate(appointmentDate) ||
-                    (includesOther && !otherTeamMemberContact.trim())
+                    (includesOther && otherTeamMemberEmails.length === 0) ||
+                    (meetingType === 'Online' && !onlineMeetingDetails.trim())
                   }
                 >
                   <CalendarClock className="w-4 h-4" />

@@ -99,7 +99,7 @@ export default function ClientProfile() {
   const { data: activities = [] } = useQuery({ queryKey: ['activities', selectedClientId], queryFn: () => api.entities.Activity.filter({ client_id: selectedClientId }, '-activity_date'), enabled: !!selectedClientId });
   useLiveChat();
   const { data: communications = [] } = useQuery({ queryKey: ['communications', selectedClientId], queryFn: () => api.entities.Communication.filter({ client_id: selectedClientId }, '-communication_date'), enabled: !!selectedClientId, refetchInterval: 5000 });
-  const { data: packages = [] } = useQuery({ queryKey: ['packages'], queryFn: () => api.entities.Package.list() });
+  const { data: packages = [] } = useQuery({ queryKey: ['packages'], queryFn: () => api.entities.Package.list(), retry: false });
   const activePackages = packages.filter((p) => p.is_active !== false);
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: () => api.entities.User.list() });
   const { data: actor } = useCurrentUser();

@@ -112,6 +112,8 @@ ENTITY_DEFINITIONS = {
             "cra_form": S,
             "cra_deadline": S,
             "service_frequency": S,
+            "period_end_date": S,
+            "due_date": S,
             "billing_frequency": S,
             "workflow_template": S,
             "responsible_role": S,

@@ -77,7 +77,7 @@ MODULES = {
     },
     "services": {
         "label": "Service Catalog",
-        "entities": {"Service"},
+        "entities": {"Service", "Package"},
         "director_implied": True,
     },
     "team": {
@@ -96,7 +96,6 @@ MODULES = {
             "Office",
             "Vendor",
             "DocumentType",
-            "Package",
             "TeamMemberBookingProfile",
             "IndustryType",
         },
