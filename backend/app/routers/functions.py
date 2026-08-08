@@ -79,7 +79,7 @@ async def _predict_filing_delays(db: AsyncSession) -> dict:
             (await db.execute(select(Task).where(Task.service_filing_id == filing.id))).scalars().all()
         )
         task_completion_rate = (
-            round(100 * sum(1 for t in tasks if t.status == "Completed") / len(tasks)) if tasks else 100
+            round(100 * sum(1 for t in tasks if t.status == "Complete") / len(tasks)) if tasks else 100
         )
 
         checklist = (
