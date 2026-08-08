@@ -842,6 +842,12 @@ export default function ClientProfile() {
                                   Due: {new Date(filing.due_date).toLocaleDateString()}
                                 </span>
                               )}
+                              {filing.compliance_due_date && (
+                                <span className="flex items-center gap-1 text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                                  <Calendar className="w-3 h-3" />
+                                  Compliance Due: {new Date(filing.compliance_due_date).toLocaleDateString()}
+                                </span>
+                              )}
                               {filing.fee > 0 && (
                                 <span className="text-green-700 font-semibold">${Number(filing.fee).toFixed(2)}</span>
                               )}
@@ -1002,8 +1008,19 @@ export default function ClientProfile() {
                 <p className="text-center text-muted-foreground py-8">No compliance alerts</p>
               ) : complianceAlerts.map(alert => {
                 const sc = { low: 'bg-blue-50 border-blue-200', medium: 'bg-yellow-50 border-yellow-200', high: 'bg-orange-50 border-orange-200', critical: 'bg-red-50 border-red-200' };
+                const linkedFiling = alert.extra?.service_filing_id
+                  ? serviceFilings.find((f) => f.id === alert.extra.service_filing_id)
+                  : null;
                 return (
-                  <div key={alert.id} className={`p-4 border rounded-lg mb-3 ${sc[alert.severity]}`}>
+                  <div
+                    key={alert.id}
+                    onClick={linkedFiling ? () => setEditingFiling(linkedFiling) : undefined}
+                    className={cn(
+                      'p-4 border rounded-lg mb-3',
+                      sc[alert.severity],
+                      linkedFiling && 'cursor-pointer hover:brightness-95 transition-all'
+                    )}
+                  >
                     <div className="flex items-start justify-between">
                       <div><h4 className="font-semibold text-navy">{alert.title}</h4><p className="text-sm text-slate-600 mt-1">{alert.description}</p></div>
                       <Badge>{alert.severity}</Badge>

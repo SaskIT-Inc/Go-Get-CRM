@@ -8,7 +8,6 @@ Two jobs: sending due RecurringEmailSequence follow-ups, and rolling
 overdue Tasks forward to next month.
 """
 
-import calendar
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -18,8 +17,9 @@ from .adapters.email import send_email
 from .adapters.gmail import send_via_gmail
 from .adapters.outlook_mail import send_via_outlook
 from .database import SessionLocal
+from .date_utils import add_months
 from .models import MODELS, ConnectedEmailAccount
-from .notify import log_activity, notify_specific_staff, recipients_for_client
+from .notify import log_activity, notify_firm, notify_specific_staff, recipients_for_client
 
 logger = logging.getLogger(__name__)
 
@@ -100,17 +100,6 @@ async def send_due_recurring_emails() -> None:
                 logger.exception("Failed to send recurring follow-up for sequence %s", sequence.id)
 
 
-def _add_one_month(d: date) -> date:
-    """Advance a date by one calendar month, clamping the day to the target
-    month's length (e.g. Jan 31 -> Feb 28/29) — plain stdlib `calendar`, no
-    new dependency."""
-    month = d.month + 1
-    year = d.year + (1 if month > 12 else 0)
-    month = 1 if month > 12 else month
-    day = min(d.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day)
-
-
 async def roll_over_overdue_tasks() -> None:
     """Daily sweep: any Task still open (status != Complete) whose due_date
     has passed gets automatically pushed one month forward. The original
@@ -135,7 +124,7 @@ async def roll_over_overdue_tasks() -> None:
         for task in overdue_tasks:
             try:
                 old_due_iso = task.due_date
-                new_due_iso = _add_one_month(date.fromisoformat(old_due_iso)).isoformat()
+                new_due_iso = add_months(old_due_iso, 1)
                 now_iso = datetime.now(timezone.utc).isoformat()
 
                 extra = dict(task.extra or {})
@@ -184,3 +173,99 @@ async def roll_over_overdue_tasks() -> None:
                     )
                 except Exception:
                     logger.exception("Failed to notify assignee of auto-reschedule for task %s", task.id)
+
+
+async def generate_compliance_alerts() -> None:
+    """Daily sweep over every ServiceFiling with a compliance_due_date (see
+    generic.py's _default_compliance_due_date): creates/escalates an open
+    ComplianceAlert on a 14/7/3-day severity ramp (medium/high/critical),
+    and auto-resolves the alert once the filing is marked Filed/Completed.
+    Dedup is by extra.service_filing_id — cheap Python-side filter, since
+    ComplianceAlert has no dedicated service_filing_id column and this
+    firm's alert volume is small."""
+    ServiceFiling = MODELS["ServiceFiling"]
+    ComplianceAlert = MODELS["ComplianceAlert"]
+    today = date.today()
+
+    async with SessionLocal() as db:
+        filings_result = await db.execute(
+            select(ServiceFiling).where(ServiceFiling.compliance_due_date.isnot(None))
+        )
+        filings = filings_result.scalars().all()
+
+        alerts_result = await db.execute(select(ComplianceAlert).where(ComplianceAlert.status == "open"))
+        alerts_by_filing_id = {
+            (a.extra or {}).get("service_filing_id"): a
+            for a in alerts_result.scalars().all()
+            if (a.extra or {}).get("service_filing_id")
+        }
+
+        for filing in filings:
+            existing_alert = alerts_by_filing_id.get(filing.id)
+
+            if filing.status in ("Filed", "Completed"):
+                if existing_alert:
+                    try:
+                        existing_alert.status = "resolved"
+                        existing_alert.acknowledged_date = datetime.now(timezone.utc).isoformat()
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        logger.exception("Failed to resolve compliance alert for filing %s", filing.id)
+                continue
+
+            try:
+                due = date.fromisoformat(filing.compliance_due_date[:10])
+            except ValueError:
+                continue
+            days_until = (due - today).days
+            if days_until > 14:
+                continue
+            severity = "critical" if days_until <= 3 else "high" if days_until <= 7 else "medium"
+            description = (
+                f"{filing.service_name} compliance deadline is {due.isoformat()} ({days_until} day(s) away)."
+            )
+
+            if existing_alert:
+                try:
+                    existing_alert.severity = severity
+                    existing_alert.days_until_due = days_until
+                    existing_alert.description = description
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    logger.exception("Failed to update compliance alert for filing %s", filing.id)
+                continue
+
+            try:
+                db.add(
+                    ComplianceAlert(
+                        title=f"Compliance deadline approaching: {filing.service_name}",
+                        description=description,
+                        alert_type="filing_compliance",
+                        severity=severity,
+                        status="open",
+                        days_until_due=days_until,
+                        client_id=filing.client_id,
+                        created_by="system",
+                        extra={"service_filing_id": filing.id, "due_date": filing.compliance_due_date},
+                    )
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.exception("Failed to create compliance alert for filing %s", filing.id)
+                continue
+
+            try:
+                await notify_firm(
+                    db=db,
+                    actor_email="system",
+                    module="compliance",
+                    notif_type="compliance_alert_created",
+                    title="Compliance deadline approaching",
+                    body=description,
+                    link_url="/Clients",
+                )
+            except Exception:
+                logger.exception("Failed to notify firm of new compliance alert for filing %s", filing.id)

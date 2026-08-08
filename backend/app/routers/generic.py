@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import ws_manager
 from ..database import get_db
+from ..date_utils import add_days, add_months
 from ..deps import get_current_user
 from ..models import MODELS, REQUIRED_FIELDS
 from ..models.tenant_models import Firm
@@ -322,6 +323,61 @@ def _filing_task_title(filing, client) -> str:
     return f"{filing.service_name} — {client_name}" if client_name else filing.service_name
 
 
+def _classify_filing(service_name: str | None) -> str | None:
+    """Best-effort keyword classification of a filing's free-text
+    service_name — there's no dedicated category column on ServiceFiling
+    (only on the Service catalog, which a hand-edited service_name can drift
+    out of sync with). Order matters: more specific tokens are checked
+    before "gst"/"pst" so combo names like "GST/PST Filing" classify as GST,
+    and "T2"/"T1" don't accidentally match a stray "t" elsewhere."""
+    name = (service_name or "").lower()
+    if "t2" in name or "corporate tax" in name or "corporation tax" in name:
+        return "t2"
+    if "t1" in name or "personal tax" in name:
+        return "t1"
+    if "t4" in name:
+        return "t4"
+    if "wcb" in name:
+        return "wcb"
+    if "remittance" in name:
+        return "remittance"
+    if "bookkeeping" in name:
+        return "bookkeeping"
+    if "gst" in name:
+        return "gst"
+    if "pst" in name:
+        return "pst"
+    return None
+
+
+def _default_compliance_due_date(category: str | None, filing_frequency: str | None, base_iso: str | None) -> str | None:
+    """Server-computed CRA-style compliance deadline — the whole point of
+    this being separate from the always-editable `due_date` is that it's
+    never taken from client input, only ever derived fresh from the
+    filing's own fields. Returns None wherever no rule applies (unmatched
+    category, missing period-end-date base, or a GST filing whose
+    filing_frequency is neither "Annual" nor "Quarterly")."""
+    if not base_iso:
+        return None
+    if category == "gst":
+        if filing_frequency == "Annual":
+            return add_months(base_iso, 3)
+        if filing_frequency == "Quarterly":
+            return add_months(base_iso, 1)
+        return None
+    if category == "pst":
+        return add_months(base_iso, 1)
+    if category == "t2":
+        return add_months(base_iso, 6)
+    if category == "t4" or category == "wcb":
+        return add_months(base_iso, 2)
+    if category == "t1":
+        return add_months(base_iso, 4)
+    if category == "remittance":
+        return add_days(base_iso, 15)
+    return None
+
+
 # Maps a ServiceFiling's (richer) status vocabulary onto a Task's own, so a
 # task auto-created from a filing keeps reflecting that filing's progress.
 _FILING_TO_TASK_STATUS = {
@@ -467,6 +523,81 @@ NOTIFY_ON_CREATE = {
     ),
     "Client": lambda obj: ("clients", "client_onboarded", "New client onboarded", obj.legal_name, "/Clients"),
     "Appointment": lambda obj: ("calendar", "appointment_booked", "New appointment booked", obj.title, "/Calendar"),
+    "ServiceFiling": lambda obj: ("filings", "filing_added", "New service filing added", obj.service_name, "/Clients"),
+    "Invoice": lambda obj: (
+        "billing", "invoice_created", "New invoice created", obj.invoice_number or f"${obj.total_amount}", "/Invoices"
+    ),
+    "Document": lambda obj: (
+        "documents", "document_added", "New document added", obj.document_name, "/Documents"
+    ),
+    "Payment": lambda obj: (
+        "billing", "payment_recorded", "New payment recorded", f"${obj.payment_amount}", "/Invoices"
+    ),
+    "Estimate": lambda obj: (
+        "billing", "estimate_created", "New estimate created", obj.estimate_number or f"${obj.total_amount}", "/Invoices"
+    ),
+    "Retainer": lambda obj: (
+        "billing", "retainer_created", "New retainer created", obj.retainer_number or obj.client_id, "/Invoices"
+    ),
+    "Signature": lambda obj: (
+        "documents", "signature_completed", "Document signed", obj.signer_name or obj.signer_email, "/Documents"
+    ),
+}
+
+# Firm-wide notifications fired on update, wherever the named status-like
+# field actually changed value (Task/Client have their own, narrower
+# existing logic elsewhere — Task only cares about the "Complete"
+# transition specifically, and Client already logs an Activity row on any
+# change — so they're deliberately not folded into this generic table).
+# Each entry: (status_field_name, module, notif_type, title, body_fn(obj,
+# old, new), link_url).
+NOTIFY_ON_STATUS_CHANGE = {
+    "ServiceFiling": (
+        "status", "filings", "filing_status_changed", "Service filing status changed",
+        lambda obj, old, new: f"{obj.service_name}: {old} → {new}", "/Clients",
+    ),
+    "Invoice": (
+        "payment_status", "billing", "invoice_status_changed", "Invoice status changed",
+        lambda obj, old, new: f"{obj.invoice_number or obj.id}: {old} → {new}", "/Invoices",
+    ),
+    "Payment": (
+        "payment_status", "billing", "payment_status_changed", "Payment status changed",
+        lambda obj, old, new: f"${obj.payment_amount}: {old} → {new}", "/Invoices",
+    ),
+    "Estimate": (
+        "status", "billing", "estimate_status_changed", "Estimate status changed",
+        lambda obj, old, new: f"{obj.estimate_number or obj.id}: {old} → {new}", "/Invoices",
+    ),
+    "Retainer": (
+        "status", "billing", "retainer_status_changed", "Retainer status changed",
+        lambda obj, old, new: f"{obj.retainer_number or obj.id}: {old} → {new}", "/Invoices",
+    ),
+}
+
+# Firm-wide notifications fired on delete — every other entity here has zero
+# audit trail today (delete_entity is otherwise a bare db.delete). Each
+# entry: (module, notif_type, title, subject_fn(obj), link_url). Fired
+# before the actual delete so obj's display fields are still populated.
+NOTIFIABLE_ON_DELETE = {
+    "Task": ("tasks", "task_deleted", "Task deleted", lambda obj: obj.title, "/Tasks"),
+    "Client": ("clients", "client_deleted", "Client deleted", lambda obj: obj.legal_name, "/Clients"),
+    "Lead": ("leads", "lead_deleted", "Lead deleted", lambda obj: obj.contact_name, "/LeadPipeline"),
+    "ServiceFiling": ("filings", "filing_deleted", "Service filing deleted", lambda obj: obj.service_name, "/Clients"),
+    "Invoice": ("billing", "invoice_deleted", "Invoice deleted", lambda obj: obj.invoice_number or obj.id, "/Invoices"),
+    "Document": ("documents", "document_deleted", "Document deleted", lambda obj: obj.document_name, "/Documents"),
+    "Appointment": ("calendar", "appointment_deleted", "Appointment deleted", lambda obj: obj.title, "/Calendar"),
+    "ComplianceAlert": (
+        "compliance", "compliance_alert_deleted", "Compliance alert deleted", lambda obj: obj.title, "/Clients"
+    ),
+    "Payment": ("billing", "payment_deleted", "Payment deleted", lambda obj: f"${obj.payment_amount}", "/Invoices"),
+    "Estimate": ("billing", "estimate_deleted", "Estimate deleted", lambda obj: obj.estimate_number or obj.id, "/Invoices"),
+    "Retainer": ("billing", "retainer_deleted", "Retainer deleted", lambda obj: obj.retainer_number or obj.id, "/Invoices"),
+    "Signature": (
+        "documents", "signature_deleted", "Signature deleted", lambda obj: obj.signer_name or obj.signer_email, "/Documents"
+    ),
+    "Communication": (
+        "clients", "communication_deleted", "Communication deleted", lambda obj: (obj.notes or "")[:60], "/Clients"
+    ),
 }
 
 # Client audit-trail logging fired on create, one entry per entity whose
@@ -558,6 +689,12 @@ async def create_entity(
         body = await _scope_message_create(db, user, body)
     _validate_required(entity, body)
     obj = build_create(entity, model, body, created_by=getattr(user, "email", None))
+    if entity == "ServiceFiling":
+        # Always freshly derived, never taken from the client body — this is
+        # what makes compliance_due_date non-editable.
+        obj.compliance_due_date = _default_compliance_due_date(
+            _classify_filing(obj.service_name), obj.filing_frequency, obj.tax_cycle_end
+        )
     db.add(obj)
     try:
         await db.commit()
@@ -790,7 +927,16 @@ async def update_entity(
     was_completed = entity == "Task" and getattr(obj, "status", None) == "Complete"
     old_assigned_to = getattr(obj, "assigned_to", None) if entity == "Task" else None
     old_filing_status = getattr(obj, "status", None) if entity == "ServiceFiling" else None
+    old_status_for_notify = (
+        getattr(obj, NOTIFY_ON_STATUS_CHANGE[entity][0], None) if entity in NOTIFY_ON_STATUS_CHANGE else None
+    )
     apply_update(entity, obj, body)
+    if entity == "ServiceFiling":
+        # Recomputed on every save regardless of what (if anything) the
+        # client sent for this field — same non-editable guarantee as create.
+        obj.compliance_due_date = _default_compliance_due_date(
+            _classify_filing(obj.service_name), obj.filing_frequency, obj.tax_cycle_end
+        )
     try:
         await db.commit()
     except SQLAlchemyError:
@@ -892,6 +1038,23 @@ async def update_entity(
         except Exception:
             logger.exception("Failed to notify new assignee %s of reassigned task %s", obj.assigned_to, obj.id)
 
+    if entity in NOTIFY_ON_STATUS_CHANGE:
+        status_field, module, notif_type, notif_title, body_fn, link_url = NOTIFY_ON_STATUS_CHANGE[entity]
+        new_status_for_notify = getattr(obj, status_field, None)
+        if old_status_for_notify != new_status_for_notify:
+            try:
+                await notify_firm(
+                    db=db,
+                    actor_email=user.email,
+                    module=module,
+                    notif_type=notif_type,
+                    title=notif_title,
+                    body=f"{user.email} — {body_fn(obj, old_status_for_notify, new_status_for_notify)}",
+                    link_url=link_url,
+                )
+            except Exception:
+                logger.exception("Failed to notify firm of %s status change for %s", entity, obj.id)
+
     if entity == "Client":
         # A single "profile updated" row per save is enough for the Activity
         # tab — field-level diffing isn't worth the complexity here.
@@ -947,6 +1110,20 @@ async def delete_entity(
     obj = await _get_scoped(db, model, item_id, extra_filter)
     if obj is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if entity in NOTIFIABLE_ON_DELETE:
+        module, notif_type, notif_title, subject_fn, link_url = NOTIFIABLE_ON_DELETE[entity]
+        try:
+            await notify_firm(
+                db=db,
+                actor_email=user.email,
+                module=module,
+                notif_type=notif_type,
+                title=notif_title,
+                body=f"{user.email} deleted: {subject_fn(obj)}",
+                link_url=link_url,
+            )
+        except Exception:
+            logger.exception("Failed to notify firm of %s deletion, id=%s", entity, obj.id)
     await db.delete(obj)
     await db.commit()
     return {"success": True}

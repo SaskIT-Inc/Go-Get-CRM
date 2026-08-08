@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .scheduler import roll_over_overdue_tasks, send_due_recurring_emails
+from .scheduler import generate_compliance_alerts, roll_over_overdue_tasks, send_due_recurring_emails
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -82,6 +82,7 @@ scheduler = AsyncIOScheduler()
 async def start_scheduler():
     scheduler.add_job(send_due_recurring_emails, "interval", hours=1, id="recurring_email_sequences")
     scheduler.add_job(roll_over_overdue_tasks, "interval", hours=24, id="overdue_task_rollover")
+    scheduler.add_job(generate_compliance_alerts, "interval", hours=24, id="compliance_alert_generation")
     scheduler.start()
 
 

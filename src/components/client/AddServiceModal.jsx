@@ -8,8 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { X, Plus, Save } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { addDays, format } from 'date-fns';
 import { api } from '@/api/apiClient';
+import { computeDefaultDueDate } from '@/lib/filingCompliance';
 
 const FREQUENCIES = ['Weekly', 'Bi-Weekly', 'Semi-Monthly', 'Monthly', 'Quarterly', 'Semi-Annual', 'Annual', 'One-time'];
 const STATUSES = ['Not Started', 'Documents Pending', 'In Progress', 'Review', 'Filed', 'Completed'];
@@ -80,9 +80,10 @@ export default function AddServiceModal({ open, onClose, onSave, services = [], 
     setForm((prev) => ({
       ...prev,
       tax_cycle_end: value,
-      // Due Date tracks Period End Date + 15 days, but stays a plain
-      // editable field afterward so this default can be overridden.
-      due_date: value ? format(addDays(new Date(value), 15), 'yyyy-MM-dd') : prev.due_date,
+      // Due Date tracks Period End Date + a type-specific offset (see
+      // filingCompliance.js), but stays a plain editable field afterward
+      // so this default can be overridden.
+      due_date: value ? computeDefaultDueDate(prev.service_name, value) : prev.due_date,
     }));
   };
 
@@ -253,8 +254,21 @@ export default function AddServiceModal({ open, onClose, onSave, services = [], 
                 onChange={set('due_date')}
                 className="h-10 border-slate-200"
               />
-              <p className="text-xs text-muted-foreground">Defaults to 15 days after Period End Date — editable.</p>
+              <p className="text-xs text-muted-foreground">Defaults based on service type — editable.</p>
             </div>
+          </div>
+
+          {/* Compliance Due Date — system-calculated, never editable */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Compliance Due Date</Label>
+            <div className="h-10 flex items-center px-3 rounded-md border border-slate-200 bg-slate-50 text-slate-700 text-sm">
+              {initialData?.compliance_due_date
+                ? new Date(initialData.compliance_due_date).toLocaleDateString()
+                : isEditing
+                ? 'Not applicable for this service type'
+                : 'Calculated automatically after saving'}
+            </div>
+            <p className="text-xs text-muted-foreground">System-calculated from service type and Period End Date — not editable.</p>
           </div>
 
           {/* Notes */}

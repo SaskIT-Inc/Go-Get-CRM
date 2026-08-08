@@ -139,6 +139,13 @@ ENTITY_DEFINITIONS = {
             "tax_cycle_end": S,
             "status": (S, {"default": "Not Started"}),
             "due_date": S,
+            # Server-computed CRA-style compliance deadline — distinct from
+            # the editable, operational `due_date` above. Always recomputed
+            # server-side from service_name/filing_frequency/tax_cycle_end
+            # on every create/update (see generic.py's _classify_filing /
+            # _default_compliance_due_date), so any client-submitted value
+            # is simply overwritten — that's what makes it non-editable.
+            "compliance_due_date": S,
             "filed_date": S,
             "assigned_to": S,
             "required_documents": J,
