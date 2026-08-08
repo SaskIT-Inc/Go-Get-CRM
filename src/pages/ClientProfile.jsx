@@ -159,9 +159,14 @@ export default function ClientProfile() {
     mutationFn: (data) => api.entities.ServiceFiling.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serviceFilings', selectedClientId] });
-      // The backend auto-creates a linked Task alongside the filing — keep
-      // My Tasks/Team Dashboard fresh if they're already open elsewhere.
+      // The backend auto-creates a linked Task + Activity row alongside the
+      // filing — ['tasks'] keeps My Tasks/Calendar/Team Dashboard fresh if
+      // open elsewhere, but this page's own Tasks/Activity tabs read from
+      // their own differently-keyed queries and need invalidating too, or
+      // they'd keep showing stale data until a manual page refresh.
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['clientTasks', selectedClientId] });
+      queryClient.invalidateQueries({ queryKey: ['activities', selectedClientId] });
       setShowAddFiling(false);
       toast.success('Service added');
     },
@@ -173,6 +178,8 @@ export default function ClientProfile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serviceFilings', selectedClientId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['clientTasks', selectedClientId] });
+      queryClient.invalidateQueries({ queryKey: ['activities', selectedClientId] });
       setEditingFiling(null);
       toast.success('Service updated');
     },
