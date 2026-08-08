@@ -1,642 +1,182 @@
-"""
-Data-driven entity definitions, replacing the Base44 schemaless entity store.
+"""Assembles ENTITY_DEFINITIONS/REQUIRED_FIELDS/EXCLUDED_FIELDS from every
+services/<name>/schema.py -- each entity's full schema (fields + required +
+excluded) now lives with that entity's service.py/route.py, not as one giant
+dict literal here. This file is purely the assembly point models/factory.py
+and models/__init__.py already import from, so neither of those needed to
+change.
 
-Each entry maps an entity name (matching the names the frontend already uses,
-e.g. `api.entities.Client`) to a table name and a field map. Field values are
-either a SQLAlchemy type, or a (type, column_kwargs) tuple for cases that need
-extra constraints (unique, nullable, default).
-
-Every entity also gets, via the model factory: id, created_date, updated_date,
-created_by, and an `extra` JSONB catch-all for any field not listed here (so
-the API stays forgiving the way Base44's schemaless entities were).
-
-Dates/times are stored as plain strings (as the frontend already treats them),
-avoiding brittle type coercion for a system that was schemaless end-to-end.
+Explicit imports (not a dynamic services/ directory scan) -- matches this
+codebase's existing preference for plain, greppable code.
 """
 
-from sqlalchemy import Boolean, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
-
-S = String
-T = Text
-I = Integer
-N = Numeric
-B = Boolean
-J = JSONB
+from ..services.user import schema as _user
+from ..services.client import schema as _client
+from ..services.service_catalog import schema as _service_catalog
+from ..services.service_filing import schema as _service_filing
+from ..services.task import schema as _task
+from ..services.appointment import schema as _appointment
+from ..services.invoice import schema as _invoice
+from ..services.document import schema as _document
+from ..services.retainer import schema as _retainer
+from ..services.service_master import schema as _service_master
+from ..services.status_stage_master import schema as _status_stage_master
+from ..services.document_checklist import schema as _document_checklist
+from ..services.task_comment import schema as _task_comment
+from ..services.compliance_alert import schema as _compliance_alert
+from ..services.email_draft import schema as _email_draft
+from ..services.lead import schema as _lead
+from ..services.signature import schema as _signature
+from ..services.workflow_template import schema as _workflow_template
+from ..services.filing_pipeline import schema as _filing_pipeline
+from ..services.process_template import schema as _process_template
+from ..services.estimate import schema as _estimate
+from ..services.activity import schema as _activity
+from ..services.communication import schema as _communication
+from ..services.automation_rules_master import schema as _automation_rules_master
+from ..services.task_template import schema as _task_template
+from ..services.payment import schema as _payment
+from ..services.payment_method import schema as _payment_method
+from ..services.announcement import schema as _announcement
+from ..services.conversation import schema as _conversation
+from ..services.message import schema as _message
+from ..services.notification import schema as _notification
+from ..services.document_comment import schema as _document_comment
+from ..services.office import schema as _office
+from ..services.vendor import schema as _vendor
+from ..services.document_type import schema as _document_type
+from ..services.industry_type import schema as _industry_type
+from ..services.package import schema as _package
+from ..services.team_member_booking_profile import schema as _team_member_booking_profile
+from ..services.recurring_email_sequence import schema as _recurring_email_sequence
 
 ENTITY_DEFINITIONS = {
-    "User": {
-        "table": "users",
-        "fields": {
-            "email": (S, {"unique": True, "nullable": False}),
-            "hashed_password": (S, {"nullable": False}),
-            "full_name": S,
-            "role": (S, {"nullable": False, "default": "user"}),
-            "job_title": S,
-            "permissions": J,
-            "phone": S,
-            "is_active": (B, {"default": True}),
-            "is_email_verified": (B, {"default": False, "nullable": False}),
-        },
-    },
-    "Client": {
-        "table": "clients",
-        "fields": {
-            "client_type": S,
-            "individual_type": S,
-            "business_type": S,
-            "legal_name": (S, {"nullable": False}),
-            "operating_name": S,
-            "industry": S,
-            "preferred_office": S,
-            "preferred_contact_method": S,
-            "lead_source": S,
-            "referral_source": S,
-            "urgency_level": (S, {"default": "This Month"}),
-            "desired_start_date": S,
-            "primary_contact_name": S,
-            "contact_person_position": S,
-            "contact_person_email": S,
-            "contact_person_phone": S,
-            "contact_person_address": S,
-            "primary_email": (S, {"nullable": False}),
-            "primary_phone": S,
-            "website": S,
-            "address": S,
-            "city": S,
-            "province": S,
-            "postal_code": S,
-            "business_number": S,
-            "gst_hst_number": S,
-            "pst_number": S,
-            "payroll_number": S,
-            "corp_number_federal": S,
-            "corp_number_provincial": S,
-            "number_of_shareholders": S,
-            "incorporation_date": S,
-            "fiscal_year_end": S,
-            "number_of_employees": I,
-            "last_year_revenue": S,
-            "annual_revenue": S,
-            "services_needed": J,
-            "current_accounting_software": S,
-            "previous_accountant": S,
-            "outstanding_issues": T,
-            "special_requirements": T,
-            "status": (S, {"default": "Onboarding"}),
-            "assigned_to": S,
-            "client_value_tier": (S, {"default": "New"}),
-            "payment_terms": (S, {"default": "Net 30"}),
-            "active_package": S,
-            "package_price": S,
-            "package_billing": S,
-            "safe_isc_user_id": S,
-            "safe_isc_password": S,
-            "safe_isc_web_code": S,
-            "safe_inc_canada_user_id": S,
-            "safe_inc_canada_password": S,
-            "safe_inc_canada_web_code": S,
-            "safe_pst_id": S,
-            "safe_pst_password": S,
-            "safe_cra_id": S,
-            "safe_cra_password": S,
-            "notes": T,
-        },
-    },
-    "Service": {
-        "table": "services",
-        "fields": {
-            "service_category": S,
-            "service_name": (S, {"nullable": False}),
-            "service_type": S,
-            "cra_form": S,
-            "cra_deadline": S,
-            "service_frequency": S,
-            "period_end_date": S,
-            "due_date": S,
-            "billing_frequency": S,
-            "workflow_template": S,
-            "responsible_role": S,
-            "base_price": N,
-            "estimated_hours": N,
-            "notes": T,
-            "is_active": (B, {"default": True}),
-            "requires_cpa": (B, {"default": False}),
-        },
-    },
-    "ServiceFiling": {
-        "table": "service_filings",
-        "fields": {
-            "client_id": (S, {"nullable": False}),
-            "service_id": S,
-            "service_name": (S, {"nullable": False}),
-            "filing_year": S,
-            "fee": N,
-            "filing_frequency": S,
-            "schedule_month": S,
-            "schedule_day": I,
-            "tax_cycle_start": S,
-            "tax_cycle_end": S,
-            "status": (S, {"default": "Not Started"}),
-            "due_date": S,
-            # Server-computed CRA-style compliance deadline — distinct from
-            # the editable, operational `due_date` above. Always recomputed
-            # server-side from service_name/filing_frequency/tax_cycle_end
-            # on every create/update (see generic.py's _classify_filing /
-            # _default_compliance_due_date), so any client-submitted value
-            # is simply overwritten — that's what makes it non-editable.
-            "compliance_due_date": S,
-            "filed_date": S,
-            "assigned_to": S,
-            "required_documents": J,
-            "notes": T,
-        },
-    },
-    "Task": {
-        "table": "tasks",
-        "fields": {
-            "title": (S, {"nullable": False}),
-            "description": T,
-            "status": (S, {"default": "Not Started"}),
-            "priority": (S, {"default": "Medium"}),
-            "assigned_to": S,
-            "client_id": S,
-            "service_filing_id": S,
-            "linked_service_id": S,
-            "linked_package_id": S,
-            "service_frequency": S,
-            "due_date": S,
-            "start_date": S,
-            "estimated_hours": N,
-            "tags": J,
-        },
-    },
-    "Appointment": {
-        "table": "appointments",
-        "fields": {
-            "title": (S, {"nullable": False}),
-            "description": T,
-            "appointment_type": S,
-            "start_time": S,
-            "end_time": S,
-            "assigned_to": J,
-            "location": S,
-            "meeting_link": S,
-            "lead_id": S,
-            "status": (S, {"default": "Scheduled"}),
-        },
-    },
-    "Invoice": {
-        "table": "invoices",
-        "fields": {
-            "invoice_number": S,
-            "client_id": (S, {"nullable": False}),
-            "service_filing_id": S,
-            "invoice_date": S,
-            "due_date": S,
-            "line_items": J,
-            "subtotal": N,
-            "tax_rate": N,
-            "tax_amount": N,
-            "total_amount": N,
-            "amount_paid": N,
-            "balance_due": N,
-            "payment_status": (S, {"default": "Pending"}),
-            "payment_method": S,
-            "payment_date": S,
-            "terms": (S, {"default": "Net 30"}),
-            "sent_to_client": (B, {"default": False}),
-            "notes": T,
-        },
-    },
-    "Document": {
-        "table": "documents",
-        "fields": {
-            "client_id": S,
-            "service_filing_id": S,
-            "document_name": (S, {"nullable": False}),
-            "document_type": S,
-            "file_url": S,
-            "file_size": N,
-            "file_type": S,
-            "folder": S,
-            "tax_year": S,
-            "description": T,
-            "tags": J,
-            "status": S,
-            "uploaded_by": S,
-        },
-    },
-    "Retainer": {
-        "table": "retainers",
-        "fields": {
-            "estimate_id": S,
-            "client_id": (S, {"nullable": False}),
-            "retainer_number": S,
-            "services": J,
-            "total_monthly_fee": N,
-            "total_annual_fee": N,
-            "start_date": S,
-            "billing_frequency": (S, {"default": "Monthly"}),
-            "status": (S, {"default": "draft"}),
-        },
-    },
-    "ServiceMaster": {
-        "table": "service_masters",
-        "fields": {
-            "name": S,
-            "category": S,
-            "sort_order": I,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "StatusStageMaster": {
-        "table": "status_stage_masters",
-        "fields": {
-            "status_name": S,
-            "sort_order": I,
-            "entity_type": S,
-            "color": S,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "DocumentChecklist": {
-        "table": "document_checklists",
-        "fields": {
-            "client_id": (S, {"nullable": False}),
-            "service_filing_id": S,
-            "checklist_items": J,
-            "completion_percentage": N,
-            "all_documents_received": (B, {"default": False}),
-            "last_updated": S,
-        },
-    },
-    "TaskComment": {
-        "table": "task_comments",
-        "fields": {
-            "task_id": (S, {"nullable": False}),
-            "commenter_email": S,
-            "commenter_name": S,
-            "comment_text": T,
-            "mentioned_emails": J,
-            "attachments": J,
-        },
-    },
-    "ComplianceAlert": {
-        "table": "compliance_alerts",
-        "fields": {
-            "title": (S, {"nullable": False}),
-            "description": T,
-            "alert_type": S,
-            "severity": S,
-            "status": (S, {"default": "open"}),
-            "acknowledged_by": S,
-            "acknowledged_date": S,
-            "days_until_due": I,
-            "client_id": S,
-        },
-    },
-    "EmailDraft": {
-        "table": "email_drafts",
-        "fields": {
-            "task_id": S,
-            "client_id": S,
-            "client_name": S,
-            "client_email": S,
-            "subject_line": S,
-            "email_body": T,
-            "status": (S, {"default": "draft"}),
-            "sent_date": S,
-            "sent_by": S,
-            "notes": T,
-        },
-    },
-    "Lead": {
-        "table": "leads",
-        "fields": {
-            "contact_name": (S, {"nullable": False}),
-            "company_name": S,
-            "email": S,
-            "phone": S,
-            "lead_type": S,
-            "pipeline_type": S,
-            "lead_source": S,
-            "referral_source": S,
-            "services_interested": J,
-            "estimated_value": N,
-            "urgency": (S, {"default": "This Month"}),
-            "notes": T,
-            "next_follow_up": S,
-            "assigned_to": S,
-            "stage": (S, {"default": "New Lead"}),
-            "probability": N,
-            "meeting_type": S,
-        },
-    },
-    "Signature": {
-        "table": "signatures",
-        "fields": {
-            "document_id": S,
-            "service_filing_id": S,
-            # Denormalized (same reasoning as Document/DocumentComment's own
-            # client_id) so a client-role user's read/create access can be
-            # scoped directly, without a join through ServiceFiling.
-            "client_id": S,
-            "signer_email": S,
-            "signer_name": S,
-            "signature_data": T,
-            "signed_date": S,
-            "document_type": S,
-            "consent_text": T,
-            "ip_address": S,
-            "is_valid": (B, {"default": False}),
-            "status": (S, {"default": "pending"}),
-            "request_date": S,
-            "message": T,
-        },
-    },
-    "WorkflowTemplate": {
-        "table": "workflow_templates",
-        "fields": {
-            "template_name": (S, {"nullable": False}),
-            "description": T,
-            "service_category": S,
-            "steps": J,
-            "required_documents": J,
-            "total_estimated_hours": N,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "FilingPipeline": {
-        "table": "filing_pipelines",
-        "fields": {
-            "service_filing_id": (S, {"nullable": False}),
-            "client_id": S,
-            "filing_type": S,
-            "current_stage": (S, {"default": "Client Data Collection"}),
-            "stage_history": J,
-            "cra_confirmation_number": S,
-        },
-    },
-    "ProcessTemplate": {
-        "table": "process_templates",
-        "fields": {
-            "process_name": (S, {"nullable": False}),
-            "description": T,
-            "frequency": S,
-            "required_roles": J,
-            "deadline_offset_days": I,
-            "process_steps": J,
-            "total_estimated_time": S,
-            "service_type": S,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "Estimate": {
-        "table": "estimates",
-        "fields": {
-            "client_id": S,
-            "lead_id": S,
-            "estimate_number": S,
-            "services": J,
-            "total_amount": N,
-            "status": (S, {"default": "draft"}),
-            "valid_until": S,
-            "notes": T,
-        },
-    },
-    "Activity": {
-        "table": "activities",
-        "fields": {
-            "lead_id": S,
-            # Populated for client-side activity (Client edits, ServiceFiling
-            # created/status changes, Task created/completed, Document
-            # uploaded) — see app/notify.py's log_activity, called as a
-            # server-side side effect from routers/generic.py, never through
-            # a user-initiated Activity.create.
-            "client_id": S,
-            "activity_type": S,
-            "title": S,
-            "from_stage": S,
-            "to_stage": S,
-            "performed_by": S,
-            "activity_date": S,
-            "details": T,
-        },
-    },
-    "Communication": {
-        "table": "communications",
-        "fields": {
-            "client_id": (S, {"nullable": False}),
-            "communication_type": (S, {"default": "Note"}),  # Call | Email | Meeting | Note | Portal Message
-            "subject": S,
-            "notes": T,
-            "communication_date": (S, {"nullable": False}),
-            # Two-way thread support (Client Profile "Comms" tab + Client
-            # Portal "Messages" tab share these rows): author_email/sender_type
-            # are stamped server-side in routers/generic.py's create_entity,
-            # never client-supplied, so a client can't post as staff or vice
-            # versa.
-            "author_email": S,
-            "sender_type": (S, {"default": "staff"}),  # "staff" | "client"
-        },
-    },
-    "AutomationRulesMaster": {
-        "table": "automation_rules_masters",
-        "fields": {
-            "rule_name": S,
-            "trigger_entity": S,
-            "trigger_condition": S,
-            "action_type": S,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "TaskTemplate": {
-        "table": "task_templates",
-        "fields": {
-            "template_name": S,
-            "description": T,
-            "estimated_hours": N,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "Payment": {
-        "table": "payments",
-        "fields": {
-            "invoice_id": S,
-            "client_id": S,
-            "payment_amount": N,
-            "payment_date": S,
-            "payment_method": S,
-            "transaction_id": S,
-            "payment_status": (S, {"default": "Completed"}),
-        },
-    },
-    "PaymentMethod": {
-        "table": "payment_methods",
-        "fields": {
-            "client_id": (S, {"nullable": False}),
-            "payment_type": S,
-            "is_active": (B, {"default": True}),
-            "card_last4": S,
-            "card_brand": S,
-            "card_exp_month": S,
-            "card_exp_year": S,
-        },
-    },
-    "Announcement": {
-        "table": "announcements",
-        "fields": {
-            "title": (S, {"nullable": False}),
-            "body": T,
-            "category": S,
-            "published_by": S,
-        },
-    },
-    "Conversation": {
-        "table": "conversations",
-        "fields": {
-            "subject": S,
-            "participant_emails": J,
-            "created_by_email": S,
-            "last_message_at": S,
-        },
-    },
-    "Message": {
-        "table": "messages",
-        "fields": {
-            "conversation_id": (S, {"nullable": False}),
-            "sender_email": S,
-            "body": T,
-            "read_by": J,
-        },
-    },
-    "Notification": {
-        "table": "notifications",
-        "fields": {
-            "recipient_email": (S, {"nullable": False}),
-            "type": S,
-            "title": S,
-            "body": T,
-            "link_url": S,
-            "is_read": (B, {"default": False}),
-            "actor_email": S,
-        },
-    },
-    "DocumentComment": {
-        "table": "document_comments",
-        "fields": {
-            "document_id": (S, {"nullable": False}),
-            "client_id": S,
-            "author_email": S,
-            "author_name": S,
-            "body": T,
-        },
-    },
-    "Office": {
-        "table": "offices",
-        "fields": {
-            "name": (S, {"nullable": False}),
-            "address": S,
-            "city": S,
-            "province": S,
-            "phone": S,
-            "email": S,
-            "is_primary": (B, {"default": False}),
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "Vendor": {
-        "table": "vendors",
-        "fields": {
-            "name": (S, {"nullable": False}),
-            "category": S,
-            "contact_email": S,
-            "phone": S,
-            "website": S,
-            "services": J,
-            "status": (S, {"default": "Active"}),
-        },
-    },
-    "DocumentType": {
-        "table": "document_types_master",
-        "fields": {
-            "name": (S, {"nullable": False}),
-            "category": S,
-            "description": T,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "IndustryType": {
-        "table": "industry_types",
-        "fields": {
-            "name": (S, {"nullable": False}),
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "Package": {
-        "table": "packages",
-        "fields": {
-            "name": (S, {"nullable": False}),
-            "price": S,
-            "billing_frequency": (S, {"default": "Monthly"}),
-            "description": T,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "TeamMemberBookingProfile": {
-        "table": "team_member_booking_profiles",
-        "fields": {
-            "user_email": (S, {"nullable": False}),
-            "notify_email": S,
-            "cc_emails": J,
-            "zoom_link": S,
-            "working_hours_start": (S, {"default": "09:00"}),
-            "working_hours_end": (S, {"default": "17:00"}),
-            "slot_duration_minutes": (I, {"default": 30}),
-            "days_available": J,
-            "is_active": (B, {"default": True}),
-        },
-    },
-    "RecurringEmailSequence": {
-        "table": "recurring_email_sequences",
-        "fields": {
-            "client_id": (S, {"nullable": False}),
-            "subject": (S, {"nullable": False}),
-            "body": (T, {"nullable": False}),
-            "interval_days": (N, {"default": 7}),
-            "next_send_date": (S, {"nullable": False}),
-            "last_sent_date": S,
-            "send_count": (N, {"default": 0}),
-            "max_sends": N,
-            "status": (S, {"default": "active"}),
-            "stopped_reason": S,
-        },
-    },
+    "User": {"table": _user.TABLE, "fields": _user.FIELDS},
+    "Client": {"table": _client.TABLE, "fields": _client.FIELDS},
+    "Service": {"table": _service_catalog.TABLE, "fields": _service_catalog.FIELDS},
+    "ServiceFiling": {"table": _service_filing.TABLE, "fields": _service_filing.FIELDS},
+    "Task": {"table": _task.TABLE, "fields": _task.FIELDS},
+    "Appointment": {"table": _appointment.TABLE, "fields": _appointment.FIELDS},
+    "Invoice": {"table": _invoice.TABLE, "fields": _invoice.FIELDS},
+    "Document": {"table": _document.TABLE, "fields": _document.FIELDS},
+    "Retainer": {"table": _retainer.TABLE, "fields": _retainer.FIELDS},
+    "ServiceMaster": {"table": _service_master.TABLE, "fields": _service_master.FIELDS},
+    "StatusStageMaster": {"table": _status_stage_master.TABLE, "fields": _status_stage_master.FIELDS},
+    "DocumentChecklist": {"table": _document_checklist.TABLE, "fields": _document_checklist.FIELDS},
+    "TaskComment": {"table": _task_comment.TABLE, "fields": _task_comment.FIELDS},
+    "ComplianceAlert": {"table": _compliance_alert.TABLE, "fields": _compliance_alert.FIELDS},
+    "EmailDraft": {"table": _email_draft.TABLE, "fields": _email_draft.FIELDS},
+    "Lead": {"table": _lead.TABLE, "fields": _lead.FIELDS},
+    "Signature": {"table": _signature.TABLE, "fields": _signature.FIELDS},
+    "WorkflowTemplate": {"table": _workflow_template.TABLE, "fields": _workflow_template.FIELDS},
+    "FilingPipeline": {"table": _filing_pipeline.TABLE, "fields": _filing_pipeline.FIELDS},
+    "ProcessTemplate": {"table": _process_template.TABLE, "fields": _process_template.FIELDS},
+    "Estimate": {"table": _estimate.TABLE, "fields": _estimate.FIELDS},
+    "Activity": {"table": _activity.TABLE, "fields": _activity.FIELDS},
+    "Communication": {"table": _communication.TABLE, "fields": _communication.FIELDS},
+    "AutomationRulesMaster": {"table": _automation_rules_master.TABLE, "fields": _automation_rules_master.FIELDS},
+    "TaskTemplate": {"table": _task_template.TABLE, "fields": _task_template.FIELDS},
+    "Payment": {"table": _payment.TABLE, "fields": _payment.FIELDS},
+    "PaymentMethod": {"table": _payment_method.TABLE, "fields": _payment_method.FIELDS},
+    "Announcement": {"table": _announcement.TABLE, "fields": _announcement.FIELDS},
+    "Conversation": {"table": _conversation.TABLE, "fields": _conversation.FIELDS},
+    "Message": {"table": _message.TABLE, "fields": _message.FIELDS},
+    "Notification": {"table": _notification.TABLE, "fields": _notification.FIELDS},
+    "DocumentComment": {"table": _document_comment.TABLE, "fields": _document_comment.FIELDS},
+    "Office": {"table": _office.TABLE, "fields": _office.FIELDS},
+    "Vendor": {"table": _vendor.TABLE, "fields": _vendor.FIELDS},
+    "DocumentType": {"table": _document_type.TABLE, "fields": _document_type.FIELDS},
+    "IndustryType": {"table": _industry_type.TABLE, "fields": _industry_type.FIELDS},
+    "Package": {"table": _package.TABLE, "fields": _package.FIELDS},
+    "TeamMemberBookingProfile": {"table": _team_member_booking_profile.TABLE, "fields": _team_member_booking_profile.FIELDS},
+    "RecurringEmailSequence": {"table": _recurring_email_sequence.TABLE, "fields": _recurring_email_sequence.FIELDS},
 }
 
-# Fields required on create, enforced by the generic router (mirrors each
+# Fields required on create, enforced by the CRUD engine (mirrors each
 # entity's `required` list from the original base44/entities/*.jsonc where
-# one existed; left empty for entities that were always schemaless).
+# one existed; omitted for entities that were always schemaless).
 REQUIRED_FIELDS = {
-    "Client": ["client_type", "legal_name", "primary_email"],
-    "Service": ["service_name"],
-    "ServiceFiling": ["client_id", "service_name"],
-    "User": ["role"],
-    "Message": ["conversation_id"],
-    "Notification": ["recipient_email"],
-    "DocumentComment": ["document_id"],
-    "Office": ["name"],
-    "Vendor": ["name"],
-    "DocumentType": ["name"],
-    "IndustryType": ["name"],
-    "Package": ["name"],
-    "TeamMemberBookingProfile": ["user_email"],
-    "Communication": ["client_id", "communication_date"],
-    "RecurringEmailSequence": ["client_id", "subject", "body", "next_send_date"],
+    "User": _user.REQUIRED,
+    "Client": _client.REQUIRED,
+    "Service": _service_catalog.REQUIRED,
+    "ServiceFiling": _service_filing.REQUIRED,
+    "Task": _task.REQUIRED,
+    "Appointment": _appointment.REQUIRED,
+    "Invoice": _invoice.REQUIRED,
+    "Document": _document.REQUIRED,
+    "Retainer": _retainer.REQUIRED,
+    "ServiceMaster": _service_master.REQUIRED,
+    "StatusStageMaster": _status_stage_master.REQUIRED,
+    "DocumentChecklist": _document_checklist.REQUIRED,
+    "TaskComment": _task_comment.REQUIRED,
+    "ComplianceAlert": _compliance_alert.REQUIRED,
+    "EmailDraft": _email_draft.REQUIRED,
+    "Lead": _lead.REQUIRED,
+    "Signature": _signature.REQUIRED,
+    "WorkflowTemplate": _workflow_template.REQUIRED,
+    "FilingPipeline": _filing_pipeline.REQUIRED,
+    "ProcessTemplate": _process_template.REQUIRED,
+    "Estimate": _estimate.REQUIRED,
+    "Activity": _activity.REQUIRED,
+    "Communication": _communication.REQUIRED,
+    "AutomationRulesMaster": _automation_rules_master.REQUIRED,
+    "TaskTemplate": _task_template.REQUIRED,
+    "Payment": _payment.REQUIRED,
+    "PaymentMethod": _payment_method.REQUIRED,
+    "Announcement": _announcement.REQUIRED,
+    "Conversation": _conversation.REQUIRED,
+    "Message": _message.REQUIRED,
+    "Notification": _notification.REQUIRED,
+    "DocumentComment": _document_comment.REQUIRED,
+    "Office": _office.REQUIRED,
+    "Vendor": _vendor.REQUIRED,
+    "DocumentType": _document_type.REQUIRED,
+    "IndustryType": _industry_type.REQUIRED,
+    "Package": _package.REQUIRED,
+    "TeamMemberBookingProfile": _team_member_booking_profile.REQUIRED,
+    "RecurringEmailSequence": _recurring_email_sequence.REQUIRED,
 }
+REQUIRED_FIELDS = {k: v for k, v in REQUIRED_FIELDS.items() if v}
 
 # Columns that must never be serialized back to API clients.
 EXCLUDED_FIELDS = {
-    "User": {"hashed_password"},
+    "User": _user.EXCLUDED,
+    "Client": _client.EXCLUDED,
+    "Service": _service_catalog.EXCLUDED,
+    "ServiceFiling": _service_filing.EXCLUDED,
+    "Task": _task.EXCLUDED,
+    "Appointment": _appointment.EXCLUDED,
+    "Invoice": _invoice.EXCLUDED,
+    "Document": _document.EXCLUDED,
+    "Retainer": _retainer.EXCLUDED,
+    "ServiceMaster": _service_master.EXCLUDED,
+    "StatusStageMaster": _status_stage_master.EXCLUDED,
+    "DocumentChecklist": _document_checklist.EXCLUDED,
+    "TaskComment": _task_comment.EXCLUDED,
+    "ComplianceAlert": _compliance_alert.EXCLUDED,
+    "EmailDraft": _email_draft.EXCLUDED,
+    "Lead": _lead.EXCLUDED,
+    "Signature": _signature.EXCLUDED,
+    "WorkflowTemplate": _workflow_template.EXCLUDED,
+    "FilingPipeline": _filing_pipeline.EXCLUDED,
+    "ProcessTemplate": _process_template.EXCLUDED,
+    "Estimate": _estimate.EXCLUDED,
+    "Activity": _activity.EXCLUDED,
+    "Communication": _communication.EXCLUDED,
+    "AutomationRulesMaster": _automation_rules_master.EXCLUDED,
+    "TaskTemplate": _task_template.EXCLUDED,
+    "Payment": _payment.EXCLUDED,
+    "PaymentMethod": _payment_method.EXCLUDED,
+    "Announcement": _announcement.EXCLUDED,
+    "Conversation": _conversation.EXCLUDED,
+    "Message": _message.EXCLUDED,
+    "Notification": _notification.EXCLUDED,
+    "DocumentComment": _document_comment.EXCLUDED,
+    "Office": _office.EXCLUDED,
+    "Vendor": _vendor.EXCLUDED,
+    "DocumentType": _document_type.EXCLUDED,
+    "IndustryType": _industry_type.EXCLUDED,
+    "Package": _package.EXCLUDED,
+    "TeamMemberBookingProfile": _team_member_booking_profile.EXCLUDED,
+    "RecurringEmailSequence": _recurring_email_sequence.EXCLUDED,
 }
+EXCLUDED_FIELDS = {k: v for k, v in EXCLUDED_FIELDS.items() if v}

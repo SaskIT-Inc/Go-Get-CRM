@@ -13,13 +13,11 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from .adapters.email import send_email
-from .adapters.gmail import send_via_gmail
-from .adapters.outlook_mail import send_via_outlook
 from .database import SessionLocal
 from .date_utils import add_months
-from .models import MODELS, ConnectedEmailAccount
+from .models import MODELS
 from .notify import log_activity, notify_firm, notify_specific_staff, recipients_for_client
+from .services._shared.email_dispatch import send_as_user_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -45,22 +43,16 @@ async def send_due_recurring_emails() -> None:
                 if not client or not client.primary_email:
                     continue
 
-                account = None
+                sender_user_id = None
                 if sequence.created_by:
                     user_result = await db.execute(select(User).where(User.email == sequence.created_by))
                     sender_user = user_result.scalar_one_or_none()
                     if sender_user:
-                        account_result = await db.execute(
-                            select(ConnectedEmailAccount).where(ConnectedEmailAccount.user_id == sender_user.id)
-                        )
-                        account = account_result.scalar_one_or_none()
+                        sender_user_id = sender_user.id
 
-                if account and account.provider == "google":
-                    await send_via_gmail(account, db, to=client.primary_email, subject=sequence.subject, body=sequence.body, html=True)
-                elif account and account.provider == "microsoft":
-                    await send_via_outlook(account, db, to=client.primary_email, subject=sequence.subject, body=sequence.body, html=True)
-                else:
-                    await send_email(to=client.primary_email, subject=sequence.subject, body=sequence.body, html=True)
+                await send_as_user_or_fallback(
+                    db, sender_user_id, to=client.primary_email, subject=sequence.subject, body=sequence.body, html=True
+                )
 
                 sequence.last_sent_date = today
                 sequence.send_count = (sequence.send_count or 0) + 1

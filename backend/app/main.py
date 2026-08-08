@@ -23,21 +23,17 @@ if settings.app_env == "production" and settings.jwt_secret == "change-me-to-a-l
         "APP_ENV=production but JWT_SECRET is still the default placeholder. "
         "Set a real, random JWT_SECRET before deploying to production."
     )
-from .routers import (
-    auth,
-    company,
-    cra_forms,
-    files,
-    functions,
-    generic,
-    google_oauth,
-    integrations,
-    onedrive_oauth,
-    outlook_oauth,
-    provincial_tax,
-    public,
-    ws_chat,
-)
+from .services.ai_reports import route as ai_reports
+from .services.auth import route as auth
+from .services.company import route as company
+from .services.cra_forms import route as cra_forms
+from .services.files import route as files
+from .services.integrations import route as integrations
+from .services.oauth import route as oauth
+from .services.provincial_tax import route as provincial_tax
+from .services.public import route as public
+from .services.registry import ALL_ENTITY_ROUTERS, EXTRA_ROUTERS
+from .services.websocket_chat import route as ws_chat
 
 app = FastAPI(title="GoGetCRM API", version="0.1.0")
 
@@ -58,14 +54,20 @@ app.include_router(company.router)
 app.include_router(cra_forms.router)
 app.include_router(provincial_tax.router)
 app.include_router(files.router)
-app.include_router(functions.router)
+app.include_router(ai_reports.router)
 app.include_router(integrations.router)
-app.include_router(google_oauth.router)
-app.include_router(onedrive_oauth.router)
-app.include_router(outlook_oauth.router)
+for _oauth_router in oauth.routers:
+    app.include_router(_oauth_router)
 app.include_router(public.router)
-app.include_router(generic.router)
 app.include_router(ws_chat.router)
+
+# Every business entity's CRUD surface (/api/<Entity>) — one router per
+# services/<name>/route.py, all sharing the CRUD engine in
+# services/_shared/crud_engine.py. See services/__init__.py for the list.
+for _router in ALL_ENTITY_ROUTERS:
+    app.include_router(_router)
+for _router in EXTRA_ROUTERS:
+    app.include_router(_router)
 
 
 @app.get("/health")
