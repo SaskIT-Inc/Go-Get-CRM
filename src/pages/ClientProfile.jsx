@@ -1080,6 +1080,11 @@ export default function ClientProfile() {
                             <Mail className="w-3 h-3" />Not emailed
                           </span>
                         )}
+                        {item.extra?.task_title && (
+                          <span className="flex items-center gap-1 text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
+                            <ListChecks className="w-3 h-3" />Task: {item.extra.task_title} — {item.extra.task_status}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -67,6 +67,17 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
     retry: false,
   });
 
+  // A task auto-created from "Add Service" links to that specific filing
+  // via service_filing_id — distinct from (and usually alongside a blank)
+  // linked_service_id/linked_package_id below, which point at the reusable
+  // catalog template instead. Surfaced read-only since nothing here is
+  // meant to be re-pointed at a different filing.
+  const { data: linkedFiling } = useQuery({
+    queryKey: ['serviceFiling', task?.service_filing_id],
+    queryFn: () => api.entities.ServiceFiling.get(task.service_filing_id),
+    enabled: !!task?.service_filing_id,
+  });
+
   const saveMutation = useMutation({
     mutationFn: (data) => {
       if (task) {
@@ -174,6 +185,14 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
                   className={isUserRole ? 'bg-slate-50 text-slate-700 cursor-default' : ''}
                 />
               </div>
+
+              {linkedFiling && (
+                <div className="text-sm bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-blue-800">
+                  📋 Auto-linked to service filing: <span className="font-semibold">{linkedFiling.service_name}</span>
+                  {linkedFiling.due_date && ` — due ${new Date(linkedFiling.due_date).toLocaleDateString()}`}
+                  {' '}({linkedFiling.status})
+                </div>
+              )}
 
               {/* Status — editable for ALL roles */}
               <div className="grid grid-cols-2 gap-4">

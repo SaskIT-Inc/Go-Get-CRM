@@ -334,30 +334,33 @@ _FILING_TO_TASK_STATUS = {
 }
 
 
-async def _create_task_for_filing(db: AsyncSession, user, filing) -> None:
+async def _create_task_for_filing(db: AsyncSession, user, filing):
     """Server-side side effect of adding a service to a client (the "Add
     Service" form on ClientProfile.jsx's Services tab) — bypasses the normal
     create_entity path the same way _auto_generate_invoice does, so My
     Tasks/Team Dashboard reflect a client's filing work without anyone
-    having to hand-create a matching task."""
+    having to hand-create a matching task. Initial status is mapped from
+    whatever status the filing was created with — a filing added directly
+    as "In Progress" shouldn't produce a task stuck at "Not Started" until
+    the next edit re-syncs it (see _sync_tasks_for_filing)."""
     Task = MODELS["Task"]
     Client = MODELS["Client"]
     client = await db.get(Client, filing.client_id) if filing.client_id else None
-    db.add(
-        Task(
-            title=_filing_task_title(filing, client),
-            description=filing.notes,
-            status="Not Started",
-            priority="Medium",
-            assigned_to=filing.assigned_to,
-            client_id=filing.client_id,
-            service_filing_id=filing.id,
-            due_date=filing.due_date,
-            created_by=user.email,
-            extra={},
-        )
+    task = Task(
+        title=_filing_task_title(filing, client),
+        description=filing.notes,
+        status=_FILING_TO_TASK_STATUS.get(filing.status, "Not Started"),
+        priority="Medium",
+        assigned_to=filing.assigned_to,
+        client_id=filing.client_id,
+        service_filing_id=filing.id,
+        due_date=filing.due_date,
+        created_by=user.email,
+        extra={},
     )
+    db.add(task)
     await db.commit()
+    return task
 
 
 async def _sync_tasks_for_filing(db: AsyncSession, filing) -> None:
@@ -697,8 +700,27 @@ async def create_entity(
         except Exception:
             logger.exception("Failed to notify assignee %s of new task %s", obj.assigned_to, obj.id)
 
+    # Runs before the activity log below so a filing's own "filing_created"
+    # row can be enriched with the auto-created task's id/title/status —
+    # the two are shown as one connected story in the Activity tab rather
+    # than two disconnected lines (there's no separate "task_created" row
+    # for these, since _create_task_for_filing bypasses create_entity).
+    created_task = None
+    if entity == "ServiceFiling":
+        try:
+            created_task = await _create_task_for_filing(db, user, obj)
+        except Exception:
+            logger.exception("Failed to auto-create task for new ServiceFiling %s", obj.id)
+
     if entity in ACTIVITY_ON_CREATE:
         client_id, activity_type, title, activity_extra = ACTIVITY_ON_CREATE[entity](obj)
+        if entity == "ServiceFiling" and created_task is not None:
+            activity_extra = {
+                **activity_extra,
+                "task_id": created_task.id,
+                "task_title": created_task.title,
+                "task_status": created_task.status,
+            }
         if client_id:
             try:
                 await log_activity(
@@ -711,12 +733,6 @@ async def create_entity(
                 )
             except Exception:
                 logger.exception("Failed to log activity '%s' for client %s", activity_type, client_id)
-
-    if entity == "ServiceFiling":
-        try:
-            await _create_task_for_filing(db, user, obj)
-        except Exception:
-            logger.exception("Failed to auto-create task for new ServiceFiling %s", obj.id)
 
     return serialize(entity, obj)
 
