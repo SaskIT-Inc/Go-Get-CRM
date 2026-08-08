@@ -17,7 +17,7 @@ export default function ServiceSelector({ onSelect, selectedService, multiSelect
     queryFn: () => api.entities.Service.filter({ is_active: true })
   });
 
-  const categories = ['all', ...new Set(services.map(s => s.service_category))];
+  const categories = ['all', ...new Set(services.map(s => s.service_category).filter(Boolean))];
 
   const filteredServices = services.filter(service => {
     const matchesSearch = service.service_name.toLowerCase().includes(searchTerm.toLowerCase()) ||

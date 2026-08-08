@@ -4,6 +4,7 @@ import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Link } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -31,11 +32,27 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { MANAGERIAL_ROLES } from '@/lib/permissions';
+import TaskFormModal from '@/components/tasks/TaskFormModal';
+import AppointmentDetailsModal from '@/components/calendar/AppointmentDetailsModal';
+import FilingDetailsModal from '@/components/calendar/FilingDetailsModal';
+import DayDetailsModal from '@/components/calendar/DayDetailsModal';
 
 export default function CentralCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
+  const [editingAppointment, setEditingAppointment] = useState(null);
+  const [editingFiling, setEditingFiling] = useState(null);
+  const [layers, setLayers] = useState({ tasks: true, appointments: true, filings: false });
+  const [viewFilter, setViewFilter] = useState('all');
   const queryClient = useQueryClient();
+
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => api.auth.me()
+  });
+  const isManagerial = MANAGERIAL_ROLES.includes(currentUser?.role);
 
   // Fetch data
   const { data: tasks = [] } = useQuery({
@@ -51,6 +68,17 @@ export default function CentralCalendar() {
   const { data: clients = [] } = useQuery({
     queryKey: ['clients'],
     queryFn: () => api.entities.Client.list()
+  });
+
+  const { data: filings = [] } = useQuery({
+    queryKey: ['filings'],
+    queryFn: () => api.entities.ServiceFiling.list()
+  });
+
+  const { data: teamMembers = [] } = useQuery({
+    queryKey: ['teamMembers'],
+    queryFn: () => api.entities.User.list(),
+    enabled: isManagerial,
   });
 
   // Update task due date
@@ -82,6 +110,28 @@ export default function CentralCalendar() {
     });
   };
 
+  // Managerial "My Tasks / Team / [member]" filter — client-side, on top of
+  // the already server-scoped list (_task_scope_filter already restricts
+  // non-managerial users to their own tasks, so this control is hidden for
+  // them entirely — there's nothing left to toggle).
+  const visibleTasks = useMemo(() => {
+    if (!isManagerial || viewFilter === 'all') return tasks;
+    if (viewFilter === 'mine') return tasks.filter((t) => t.assigned_to === currentUser?.email);
+    return tasks.filter((t) => t.assigned_to === viewFilter);
+  }, [tasks, isManagerial, viewFilter, currentUser]);
+
+  const visibleAppointments = useMemo(() => {
+    if (!isManagerial || viewFilter === 'all') return appointments;
+    const email = viewFilter === 'mine' ? currentUser?.email : viewFilter;
+    return appointments.filter((a) => a.assigned_to?.includes(email));
+  }, [appointments, isManagerial, viewFilter, currentUser]);
+
+  const visibleFilings = useMemo(() => {
+    if (!isManagerial || viewFilter === 'all') return filings;
+    const email = viewFilter === 'mine' ? currentUser?.email : viewFilter;
+    return filings.filter((f) => f.assigned_to === email);
+  }, [filings, isManagerial, viewFilter, currentUser]);
+
   // Calculate calendar days
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
@@ -92,13 +142,16 @@ export default function CentralCalendar() {
   // Get items for a specific date
   const getItemsForDate = (date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    const dayTasks = tasks.filter(
-      t => t.due_date && format(parseISO(t.due_date), 'yyyy-MM-dd') === dateStr
-    );
-    const dayAppointments = appointments.filter(
-      a => a.start_time && format(parseISO(a.start_time), 'yyyy-MM-dd') === dateStr
-    );
-    return { tasks: dayTasks, appointments: dayAppointments };
+    const dayTasks = layers.tasks
+      ? visibleTasks.filter(t => t.due_date && format(parseISO(t.due_date), 'yyyy-MM-dd') === dateStr)
+      : [];
+    const dayAppointments = layers.appointments
+      ? visibleAppointments.filter(a => a.start_time && format(parseISO(a.start_time), 'yyyy-MM-dd') === dateStr)
+      : [];
+    const dayFilings = layers.filings
+      ? visibleFilings.filter(f => f.due_date && format(parseISO(f.due_date), 'yyyy-MM-dd') === dateStr)
+      : [];
+    return { tasks: dayTasks, appointments: dayAppointments, filings: dayFilings };
   };
 
   // Get upcoming items (next 7 days)
@@ -111,10 +164,10 @@ export default function CentralCalendar() {
       date.setDate(date.getDate() + i);
       const dateStr = format(date, 'yyyy-MM-dd');
 
-      const dayTasks = tasks.filter(
+      const dayTasks = visibleTasks.filter(
         t => t.due_date && format(parseISO(t.due_date), 'yyyy-MM-dd') === dateStr && t.status !== 'Complete'
       );
-      const dayAppointments = appointments.filter(
+      const dayAppointments = visibleAppointments.filter(
         a => a.start_time && format(parseISO(a.start_time), 'yyyy-MM-dd') === dateStr
       );
 
@@ -124,7 +177,7 @@ export default function CentralCalendar() {
     }
 
     return items;
-  }, [tasks, appointments]);
+  }, [visibleTasks, visibleAppointments]);
 
   const getPriorityColor = (priority) => {
     const colors = {
@@ -152,12 +205,20 @@ export default function CentralCalendar() {
     return client?.legal_name || 'Unknown Client';
   };
 
+  const rescheduleTooltip = (task) => {
+    const history = task.extra?.overdue_reschedule_history;
+    if (!history?.length) return 'Automatically rescheduled after going overdue';
+    return history.map((h) => `${h.from} → ${h.to}`).join('\n');
+  };
+
+  const selectedDateItems = selectedDate ? getItemsForDate(selectedDate) : null;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Calendar & Deadlines</h1>
-          <p className="text-muted-foreground">Drag tasks to reschedule - synced with task management</p>
+          <p className="text-muted-foreground">Drag tasks to reschedule, or click a date/task/appointment for full details</p>
         </div>
         <div className="flex gap-2">
           <Link to="/Tasks">
@@ -167,6 +228,42 @@ export default function CentralCalendar() {
             <Button variant="outline" size="sm">Team Dashboard</Button>
           </Link>
         </div>
+      </div>
+
+      {/* Layer toggles + managerial assignee filter */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <span className="text-xs font-semibold text-muted-foreground uppercase">Show:</span>
+        {[
+          { key: 'tasks', label: 'Tasks' },
+          { key: 'appointments', label: 'Appointments' },
+          { key: 'filings', label: 'Filing Deadlines' },
+        ].map(({ key, label }) => (
+          <Button
+            key={key}
+            size="sm"
+            variant={layers[key] ? 'default' : 'outline'}
+            onClick={() => setLayers((prev) => ({ ...prev, [key]: !prev[key] }))}
+            className={layers[key] ? 'bg-navy text-white hover:bg-navy/90' : ''}
+          >
+            {label}
+          </Button>
+        ))}
+
+        {isManagerial && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase">View:</span>
+            <Select value={viewFilter} onValueChange={setViewFilter}>
+              <SelectTrigger className="w-48 h-9"><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-white">
+                <SelectItem value="all">Whole Team</SelectItem>
+                <SelectItem value="mine">My Own</SelectItem>
+                {teamMembers.map((member) => (
+                  <SelectItem key={member.id} value={member.email}>{member.full_name || member.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -212,7 +309,7 @@ export default function CentralCalendar() {
                 {/* Calendar grid */}
                 <div className="grid grid-cols-7 gap-2">
                   {calendarDays.map(day => {
-                    const { tasks: dayTasks, appointments: dayAppointments } = getItemsForDate(day);
+                    const { tasks: dayTasks, appointments: dayAppointments, filings: dayFilings } = getItemsForDate(day);
                     const isCurrentMonth = isSameMonth(day, currentDate);
                     const isSelected = selectedDate && isSameDay(day, selectedDate);
 
@@ -255,8 +352,9 @@ export default function CentralCalendar() {
                                       ref={provided.innerRef}
                                       {...provided.draggableProps}
                                       {...provided.dragHandleProps}
+                                      onClick={(e) => { e.stopPropagation(); setEditingTask(task); }}
                                       className={cn(
-                                        'p-1 rounded text-xs font-semibold text-white cursor-move truncate',
+                                        'p-1 rounded text-xs font-semibold text-white truncate cursor-pointer',
                                         getPriorityColor(task.priority),
                                         snapshot.isDragging && 'opacity-50 ring-2 ring-blue-400'
                                       )}
@@ -275,7 +373,8 @@ export default function CentralCalendar() {
                                 {dayAppointments.slice(0, 1).map(apt => (
                                   <div
                                     key={apt.id}
-                                    className="text-xs bg-purple-100 text-purple-700 p-0.5 rounded truncate"
+                                    onClick={(e) => { e.stopPropagation(); setEditingAppointment(apt); }}
+                                    className="text-xs bg-purple-100 text-purple-700 p-0.5 rounded truncate cursor-pointer"
                                     title={apt.title}
                                   >
                                     📅 {apt.title}
@@ -283,6 +382,25 @@ export default function CentralCalendar() {
                                 ))}
                                 {dayAppointments.length > 1 && (
                                   <p className="text-xs text-slate-500">+{dayAppointments.length - 1} more</p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Filing deadlines */}
+                            {dayFilings.length > 0 && (
+                              <div className="mt-1 pt-1 border-t border-slate-200 space-y-0.5">
+                                {dayFilings.slice(0, 1).map(filing => (
+                                  <div
+                                    key={filing.id}
+                                    onClick={(e) => { e.stopPropagation(); setEditingFiling(filing); }}
+                                    className="text-xs bg-teal-100 text-teal-700 p-0.5 rounded truncate cursor-pointer"
+                                    title={filing.service_name}
+                                  >
+                                    📋 {filing.service_name}
+                                  </div>
+                                ))}
+                                {dayFilings.length > 1 && (
+                                  <p className="text-xs text-slate-500">+{dayFilings.length - 1} more</p>
                                 )}
                               </div>
                             )}
@@ -323,7 +441,8 @@ export default function CentralCalendar() {
                             {item.tasks.map(task => (
                               <div
                                 key={task.id}
-                                className="flex items-start gap-2 p-2 bg-slate-50 rounded-lg"
+                                onClick={() => setEditingTask(task)}
+                                className="flex items-start gap-2 p-2 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100"
                               >
                                 <div className="flex-shrink-0 mt-0.5">
                                   {getStatusIcon(task.status)}
@@ -332,7 +451,12 @@ export default function CentralCalendar() {
                                   <p className="text-xs font-semibold text-navy truncate">
                                     {task.title}
                                   </p>
-                                  <div className="flex items-center gap-1 mt-1">
+                                  {task.client_id && (
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {getClientName(task.client_id)}
+                                    </p>
+                                  )}
+                                  <div className="flex items-center gap-1 mt-1 flex-wrap">
                                     <Badge
                                       className="text-xs"
                                       variant="outline"
@@ -342,6 +466,19 @@ export default function CentralCalendar() {
                                     {task.assigned_to && (
                                       <span className="text-xs text-muted-foreground">
                                         {task.assigned_to.split('@')[0]}
+                                      </span>
+                                    )}
+                                    {task.extra?.overdue_reschedule_history?.length > 0 && (
+                                      <span
+                                        className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 whitespace-pre-line"
+                                        title={rescheduleTooltip(task)}
+                                      >
+                                        ↻ Rescheduled
+                                      </span>
+                                    )}
+                                    {(task.extra?.client_emailed || task.client_emailed) && (
+                                      <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 rounded-full px-1.5">
+                                        ✉️ Emailed
                                       </span>
                                     )}
                                   </div>
@@ -357,7 +494,8 @@ export default function CentralCalendar() {
                             {item.appointments.map(apt => (
                               <div
                                 key={apt.id}
-                                className="flex items-start gap-2 p-2 bg-purple-50 rounded-lg"
+                                onClick={() => setEditingAppointment(apt)}
+                                className="flex items-start gap-2 p-2 bg-purple-50 rounded-lg cursor-pointer hover:bg-purple-100"
                               >
                                 <Calendar className="w-4 h-4 text-purple-600 flex-shrink-0 mt-0.5" />
                                 <div className="flex-1 min-w-0">
@@ -395,108 +533,44 @@ export default function CentralCalendar() {
         </div>
       </DragDropContext>
 
-      {/* Selected Date Details */}
-      {selectedDate && (
-        <Card className="mt-6 border-none shadow-md">
-          <CardHeader>
-            <CardTitle>{format(selectedDate, 'EEEE, MMMM d, yyyy')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const { tasks: dayTasks, appointments: dayAppointments } = getItemsForDate(selectedDate);
+      {selectedDate && selectedDateItems && (
+        <DayDetailsModal
+          date={selectedDate}
+          tasks={selectedDateItems.tasks}
+          appointments={selectedDateItems.appointments}
+          filings={selectedDateItems.filings}
+          getClientName={getClientName}
+          getStatusIcon={getStatusIcon}
+          getPriorityColor={getPriorityColor}
+          onOpenTask={setEditingTask}
+          onOpenAppointment={setEditingAppointment}
+          onOpenFiling={setEditingFiling}
+          onClose={() => setSelectedDate(null)}
+        />
+      )}
 
-              if (dayTasks.length === 0 && dayAppointments.length === 0) {
-                return <p className="text-muted-foreground text-center py-8">No tasks or appointments scheduled</p>;
-              }
+      {editingTask && (
+        <TaskFormModal
+          task={editingTask}
+          currentUser={currentUser}
+          onClose={() => setEditingTask(null)}
+        />
+      )}
 
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Tasks */}
-                  {dayTasks.length > 0 && (
-                    <div>
-                      <h3 className="font-bold text-navy mb-4">Tasks</h3>
-                      <div className="space-y-3">
-                        {dayTasks.map(task => (
-                          <div
-                            key={task.id}
-                            className="p-4 border rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors"
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <h4 className="font-semibold text-navy">{task.title}</h4>
-                              <Badge className={`${getPriorityColor(task.priority)} text-white text-xs`}>
-                                {task.priority}
-                              </Badge>
-                            </div>
-                            {task.description && (
-                              <p className="text-sm text-muted-foreground mb-2">{task.description}</p>
-                            )}
-                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                {getStatusIcon(task.status)}
-                                {task.status}
-                              </span>
-                              {task.assigned_to && (
-                                <span className="flex items-center gap-1">
-                                  👤 {task.assigned_to.split('@')[0]}
-                                </span>
-                              )}
-                              {task.estimated_hours && (
-                                <span>⏱️ {task.estimated_hours}h</span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+      {editingAppointment && (
+        <AppointmentDetailsModal
+          appointment={editingAppointment}
+          clients={clients}
+          onClose={() => setEditingAppointment(null)}
+        />
+      )}
 
-                  {/* Appointments */}
-                  {dayAppointments.length > 0 && (
-                    <div>
-                      <h3 className="font-bold text-navy mb-4">Appointments</h3>
-                      <div className="space-y-3">
-                        {dayAppointments.map(apt => (
-                          <div
-                            key={apt.id}
-                            className="p-4 border border-purple-200 rounded-lg bg-purple-50 hover:bg-purple-100 transition-colors"
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <h4 className="font-semibold text-navy">{apt.title}</h4>
-                              <Badge className="bg-purple-500 text-white text-xs">
-                                {apt.appointment_type || 'Meeting'}
-                              </Badge>
-                            </div>
-                            {apt.description && (
-                              <p className="text-sm text-muted-foreground mb-2">{apt.description}</p>
-                            )}
-                            <div className="space-y-1 text-xs text-muted-foreground">
-                              <div className="flex items-center gap-2">
-                                <Clock className="w-3 h-3" />
-                                {format(parseISO(apt.start_time), 'h:mm a')} - {format(parseISO(apt.end_time), 'h:mm a')}
-                              </div>
-                              {apt.location && (
-                                <div className="flex items-center gap-2">
-                                  <MapPin className="w-3 h-3" />
-                                  {apt.location}
-                                </div>
-                              )}
-                              {apt.assigned_to?.length > 0 && (
-                                <div className="flex items-center gap-2">
-                                  <Users className="w-3 h-3" />
-                                  {apt.assigned_to.join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
+      {editingFiling && (
+        <FilingDetailsModal
+          filing={editingFiling}
+          clientName={getClientName(editingFiling.client_id)}
+          onClose={() => setEditingFiling(null)}
+        />
       )}
     </div>
   );

@@ -6,6 +6,12 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://gogetcrm:gogetcrm@localhost:5432/gogetcrm"
 
+    # "development" (default, safe for local/dev boxes) or "production" — see
+    # main.py's startup check, which refuses to boot in production with the
+    # default jwt_secret below still in place.
+    app_env: str = "development"
+    log_level: str = "INFO"
+
     jwt_secret: str = "change-me-to-a-long-random-string"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440

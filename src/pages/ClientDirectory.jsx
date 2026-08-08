@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/apiClient';
 import { Link } from 'react-router-dom';
@@ -15,7 +15,8 @@ import {
   Mail,
   Phone,
   MapPin,
-  Filter
+  Filter,
+  ListChecks
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -28,6 +29,30 @@ export default function ClientDirectory() {
     queryKey: ['clients'],
     queryFn: () => api.entities.Client.list('-created_date')
   });
+
+  // One bulk fetch, grouped client-side by client_id — same pattern as the
+  // recurring-follow-up status lookup on this page's onboarding sibling —
+  // so every card can show an at-a-glance task/overdue count without a
+  // per-client query.
+  const { data: allTasks = [] } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: () => api.entities.Task.list()
+  });
+  const taskCountsByClient = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const map = new Map();
+    for (const task of allTasks) {
+      if (!task.client_id) continue;
+      const bucket = map.get(task.client_id) || { total: 0, overdue: 0 };
+      bucket.total += 1;
+      if (task.status !== 'Complete' && task.due_date && new Date(task.due_date) < today) {
+        bucket.overdue += 1;
+      }
+      map.set(task.client_id, bucket);
+    }
+    return map;
+  }, [allTasks]);
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = 
@@ -196,6 +221,21 @@ export default function ClientDirectory() {
                       </div>
                     )}
                   </div>
+
+                  {/* Task summary badge */}
+                  {taskCountsByClient.has(client.id) && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <Badge variant="outline" className="gap-1 text-xs">
+                        <ListChecks className="w-3 h-3" />
+                        {taskCountsByClient.get(client.id).total} task{taskCountsByClient.get(client.id).total !== 1 ? 's' : ''}
+                      </Badge>
+                      {taskCountsByClient.get(client.id).overdue > 0 && (
+                        <Badge className="text-xs bg-red-100 text-red-700">
+                          {taskCountsByClient.get(client.id).overdue} overdue
+                        </Badge>
+                      )}
+                    </div>
+                  )}
 
                   {/* Services */}
                   {client.services_needed?.length > 0 && (

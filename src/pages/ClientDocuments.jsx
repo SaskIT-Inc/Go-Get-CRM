@@ -38,6 +38,16 @@ export default function ClientDocuments() {
     queryFn: () => api.entities.Client.filter({ status: 'Active' })
   });
 
+  const { data: documentTypes = [] } = useQuery({
+    queryKey: ['documentTypes'],
+    queryFn: () => api.entities.DocumentType.list(),
+  });
+  const categoryByName = documentTypes.reduce((map, dt) => {
+    map[dt.name] = dt.category || 'Other';
+    return map;
+  }, {});
+  const categories = [...new Set(documentTypes.map((dt) => dt.category || 'Other'))];
+
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ['documents', selectedClient?.id],
     queryFn: () =>
@@ -67,7 +77,10 @@ export default function ClientDocuments() {
       doc.document_type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       doc.folder?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesType = filterType === 'all' || doc.document_type.includes(filterType);
+    const docCategory = categoryByName[doc.document_type];
+    const matchesType =
+      filterType === 'all' ||
+      (docCategory ? docCategory === filterType : doc.document_type.includes(filterType));
     const matchesStatus = filterStatus === 'all' || doc.status === filterStatus;
     
     return matchesSearch && matchesType && matchesStatus;
@@ -183,9 +196,9 @@ export default function ClientDocuments() {
                 <Tabs value={filterType} onValueChange={setFilterType}>
                   <TabsList className="bg-muted">
                     <TabsTrigger value="all">All Types</TabsTrigger>
-                    <TabsTrigger value="Tax Slip">Tax Slips</TabsTrigger>
-                    <TabsTrigger value="Receipt">Receipts</TabsTrigger>
-                    <TabsTrigger value="Bank Statement">Bank</TabsTrigger>
+                    {categories.map((category) => (
+                      <TabsTrigger key={category} value={category}>{category}</TabsTrigger>
+                    ))}
                   </TabsList>
                 </Tabs>
                 <Tabs value={filterStatus} onValueChange={setFilterStatus}>

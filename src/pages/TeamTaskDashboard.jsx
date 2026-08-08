@@ -15,7 +15,11 @@ import { cn } from '@/lib/utils';
 
 export default function TeamTaskDashboard() {
   const queryClient = useQueryClient();
-  const [selectedUser, setSelectedUser] = useState('me');
+  // Defaults to "All Team Members" — a shared team dashboard that opens
+  // scoped to just the viewer's own tasks hides everything else (including
+  // unassigned tasks, which never match anyone's email) until someone
+  // remembers to switch the filter. "My Tasks" stays available below.
+  const [selectedUser, setSelectedUser] = useState('all');
 
   const { data: currentUser } = useQuery({
     queryKey: ['currentUser'],

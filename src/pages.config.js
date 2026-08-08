@@ -49,7 +49,6 @@
  */
 import Analytics from './pages/Analytics';
 import CRAForms from './pages/CRAForms';
-import Calendar from './pages/Calendar';
 import ClientBilling from './pages/ClientBilling';
 import ClientCompliance from './pages/ClientCompliance';
 import ClientDirectory from './pages/ClientDirectory';
@@ -72,17 +71,14 @@ import Documents from './pages/Documents';
 import EstimateBuilder from './pages/EstimateBuilder';
 import Estimates from './pages/Estimates';
 import FinancialReports from './pages/FinancialReports';
-import FullCalendar from './pages/FullCalendar';
 import Invoices from './pages/Invoices';
 import LeadCapture from './pages/LeadCapture';
 import LeadDirectory from './pages/LeadDirectory';
 import LeadManagement from './pages/LeadManagement';
 import LeadPipeline from './pages/LeadPipeline';
 import LeadReports from './pages/LeadReports';
-import MyTasks from './pages/MyTasks';
 import NeedsAssessment from './pages/NeedsAssessment';
 import Processes from './pages/Processes';
-import QuickCreate from './pages/QuickCreate';
 import Reports from './pages/Reports';
 import Retainers from './pages/Retainers';
 import RevenueIntelligence from './pages/RevenueIntelligence';
@@ -91,10 +87,8 @@ import ServiceReports from './pages/ServiceReports';
 import Settings from './pages/Settings';
 import TaskTimeline from './pages/TaskTimeline';
 import TeamReports from './pages/TeamReports';
-import TeamTasks from './pages/TeamTasks';
 import Vendors from './pages/Vendors';
 import WorkflowTemplates from './pages/WorkflowTemplates';
-import Workspace from './pages/Workspace';
 import FilingPipeline from './pages/FilingPipeline';
 import CalendarSync from './pages/CalendarSync';
 import ManagerDashboard from './pages/ManagerDashboard';
@@ -104,7 +98,6 @@ import __Layout from './Layout.jsx';
 export const PAGES = {
     "Analytics": Analytics,
     "CRAForms": CRAForms,
-    "Calendar": Calendar,
     "ClientBilling": ClientBilling,
     "ClientCompliance": ClientCompliance,
     "ClientDirectory": ClientDirectory,
@@ -127,17 +120,14 @@ export const PAGES = {
     "EstimateBuilder": EstimateBuilder,
     "Estimates": Estimates,
     "FinancialReports": FinancialReports,
-    "FullCalendar": FullCalendar,
     "Invoices": Invoices,
     "LeadCapture": LeadCapture,
     "LeadDirectory": LeadDirectory,
     "LeadManagement": LeadManagement,
     "LeadPipeline": LeadPipeline,
     "LeadReports": LeadReports,
-    "MyTasks": MyTasks,
     "NeedsAssessment": NeedsAssessment,
     "Processes": Processes,
-    "QuickCreate": QuickCreate,
     "Reports": Reports,
     "Retainers": Retainers,
     "RevenueIntelligence": RevenueIntelligence,
@@ -146,10 +136,8 @@ export const PAGES = {
     "Settings": Settings,
     "TaskTimeline": TaskTimeline,
     "TeamReports": TeamReports,
-    "TeamTasks": TeamTasks,
     "Vendors": Vendors,
     "WorkflowTemplates": WorkflowTemplates,
-    "Workspace": Workspace,
     "FilingPipeline": FilingPipeline,
     "CalendarSync": CalendarSync,
     "ManagerDashboard": ManagerDashboard,

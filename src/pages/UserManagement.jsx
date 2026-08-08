@@ -8,8 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { UserPlus, Mail, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { INVITABLE, useCurrentUser } from '@/lib/permissions';
-import PermissionMatrixEditor from '@/components/user/PermissionMatrixEditor';
+import { INVITABLE, ROLE_PERMISSION_PRESETS, useCurrentUser } from '@/lib/permissions';
+import PermissionsPanel from '@/components/user/PermissionsPanel';
 import UserCard from '@/components/user/UserCard';
 
 const ROLE_LABEL = (role) => role?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || role;
@@ -17,7 +17,8 @@ const ROLE_LABEL = (role) => role?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.
 export default function UserManagement() {
   const queryClient = useQueryClient();
   const { data: user } = useCurrentUser();
-  const [invite, setInvite] = useState({ email: '', full_name: '', role: '', permissions: {} });
+  const [invite, setInvite] = useState({ email: '', full_name: '', role: '', job_title: '', permissions: {} });
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],
@@ -34,7 +35,7 @@ export default function UserManagement() {
       if (data.accept_url) {
         toast.info(`No email set up yet — share this invite link manually: ${data.accept_url}`);
       }
-      setInvite({ email: '', full_name: '', role: '', permissions: {} });
+      setInvite({ email: '', full_name: '', role: '', job_title: '', permissions: {} });
     },
     onError: (error) => toast.error(`Failed to invite: ${error.message}`),
   });
@@ -111,7 +112,17 @@ export default function UserManagement() {
               </div>
               <div>
                 <Label>Role *</Label>
-                <Select value={invite.role} onValueChange={(value) => setInvite({ ...invite, role: value })}>
+                <Select
+                  value={invite.role}
+                  onValueChange={(value) => setInvite({
+                    ...invite,
+                    role: value,
+                    // Fresh invite — nothing to lose, so seed with the
+                    // role's starting package immediately; still fully
+                    // editable in the panel before sending.
+                    permissions: ROLE_PERMISSION_PRESETS[value] ? { ...ROLE_PERMISSION_PRESETS[value] } : {},
+                  })}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a role" />
                   </SelectTrigger>
@@ -126,13 +137,26 @@ export default function UserManagement() {
               </div>
             </div>
 
+            {invite.role === 'other' && (
+              <div>
+                <Label>Custom Role Title</Label>
+                <Input
+                  placeholder="e.g. Payroll Specialist"
+                  value={invite.job_title}
+                  onChange={(e) => setInvite({ ...invite, job_title: e.target.value })}
+                />
+              </div>
+            )}
+
             {invite.role && invite.role !== 'client' && (
               <div>
                 <Label className="mb-2 block">Module Access</Label>
-                <PermissionMatrixEditor
-                  value={invite.permissions}
-                  onChange={(permissions) => setInvite({ ...invite, permissions })}
-                />
+                <Button type="button" variant="outline" onClick={() => setShowPermissionsPanel(true)} className="gap-2">
+                  Configure Permissions
+                  <span className="text-xs text-muted-foreground">
+                    ({Object.values(invite.permissions).reduce((sum, actions) => sum + actions.length, 0)} granted)
+                  </span>
+                </Button>
               </div>
             )}
 
@@ -162,6 +186,15 @@ export default function UserManagement() {
           </div>
         </CardContent>
       </Card>
+
+      <PermissionsPanel
+        open={showPermissionsPanel}
+        onClose={() => setShowPermissionsPanel(false)}
+        role={invite.role}
+        name={invite.full_name || invite.email}
+        value={invite.permissions}
+        onSave={(permissions) => setInvite({ ...invite, permissions })}
+      />
     </div>
   );
 }

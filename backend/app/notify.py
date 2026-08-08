@@ -148,6 +148,7 @@ async def log_activity(
     from_stage: str | None = None,
     to_stage: str | None = None,
     details: str | None = None,
+    extra: dict | None = None,
 ) -> None:
     """Write one Activity row for a client's audit trail. Unlike notify_firm
     there's no recipient fan-out — this is a single insert, committed
@@ -163,7 +164,7 @@ async def log_activity(
             performed_by=actor_email,
             activity_date=datetime.datetime.now(datetime.timezone.utc).isoformat(),
             details=details,
-            extra={},
+            extra=extra or {},
         )
     )
     await db.commit()

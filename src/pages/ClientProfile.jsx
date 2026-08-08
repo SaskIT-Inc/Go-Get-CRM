@@ -14,7 +14,8 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   User, Building2, Mail, Phone, MapPin, FileText, DollarSign,
   Calendar, Edit, Save, X, Search, MessageSquare,
-  AlertTriangle, Activity, Globe, Lock, Plus, Trash2, RefreshCw, KeyRound, CheckCircle2, Loader2, Send, Repeat
+  AlertTriangle, Activity, Globe, Lock, Plus, Trash2, RefreshCw, KeyRound, CheckCircle2, Loader2, Send, Repeat,
+  ListChecks, Clock, RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,26 @@ import LogCommunicationModal from '@/components/client/LogCommunicationModal';
 import RecurringFollowUpModal from '@/components/clients/RecurringFollowUpModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import InvoiceGenerator from '@/components/invoices/InvoiceGenerator';
+import TaskFormModal from '@/components/tasks/TaskFormModal';
+import DocumentUploader from '@/components/documents/DocumentUploader';
+import DocumentCard from '@/components/documents/DocumentCard';
+
+// Small icon/color mapping for Activity.activity_type — the model has
+// carried this field since it was introduced, but the Activity tab never
+// rendered it (or `details`); every value that's actually produced today
+// (see backend/app/notify.py callers) is covered, with a neutral fallback
+// for anything else.
+const ACTIVITY_TYPE_STYLES = {
+  task_created: { label: 'Task', color: 'bg-blue-100 text-blue-700' },
+  task_completed: { label: 'Task Completed', color: 'bg-green-100 text-green-700' },
+  task_rescheduled: { label: 'Task Rescheduled', color: 'bg-amber-100 text-amber-700' },
+  filing_created: { label: 'Filing', color: 'bg-purple-100 text-purple-700' },
+  filing_status_changed: { label: 'Filing Status', color: 'bg-indigo-100 text-indigo-700' },
+  invoice_generated: { label: 'Invoice', color: 'bg-emerald-100 text-emerald-700' },
+  document_uploaded: { label: 'Document', color: 'bg-yellow-100 text-yellow-700' },
+  signature_completed: { label: 'Signature', color: 'bg-teal-100 text-teal-700' },
+  client_updated: { label: 'Profile', color: 'bg-slate-100 text-slate-700' },
+};
 
 const GOGET_INDUSTRIES = [
   'Indigenous Business',
@@ -95,9 +116,25 @@ export default function ClientProfile() {
   const { data: serviceFilings = [] } = useQuery({ queryKey: ['serviceFilings', selectedClientId], queryFn: () => api.entities.ServiceFiling.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
   const { data: invoices = [] } = useQuery({ queryKey: ['invoices', selectedClientId], queryFn: () => api.entities.Invoice.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
   const { data: documents = [] } = useQuery({ queryKey: ['documents', selectedClientId], queryFn: () => api.entities.Document.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
+  const [showUploadDocument, setShowUploadDocument] = useState(false);
+  const deleteDocumentMutation = useMutation({
+    mutationFn: (id) => api.entities.Document.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents', selectedClientId] });
+      toast.success('Document deleted');
+    },
+  });
+  const handleDeleteDocument = (doc) => {
+    if (confirm('Are you sure you want to delete this document?')) {
+      deleteDocumentMutation.mutate(doc.id);
+    }
+  };
   const { data: checklists = [] } = useQuery({ queryKey: ['checklists', selectedClientId], queryFn: () => api.entities.DocumentChecklist.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
   const { data: complianceAlerts = [] } = useQuery({ queryKey: ['complianceAlerts', selectedClientId], queryFn: () => api.entities.ComplianceAlert.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
   const { data: activities = [] } = useQuery({ queryKey: ['activities', selectedClientId], queryFn: () => api.entities.Activity.filter({ client_id: selectedClientId }, '-activity_date'), enabled: !!selectedClientId });
+  const [activityTypeFilter, setActivityTypeFilter] = useState('all');
+  const { data: clientTasks = [] } = useQuery({ queryKey: ['clientTasks', selectedClientId], queryFn: () => api.entities.Task.filter({ client_id: selectedClientId }), enabled: !!selectedClientId });
+  const [editingClientTask, setEditingClientTask] = useState(null);
   useLiveChat();
   const { data: communications = [] } = useQuery({ queryKey: ['communications', selectedClientId], queryFn: () => api.entities.Communication.filter({ client_id: selectedClientId }, '-communication_date'), enabled: !!selectedClientId, refetchInterval: 5000 });
   const { data: recurringSequences = [] } = useQuery({ queryKey: ['recurringEmailSequences', selectedClientId], queryFn: () => api.entities.RecurringEmailSequence.filter({ client_id: selectedClientId }), enabled: !!selectedClientId, retry: false });
@@ -122,6 +159,9 @@ export default function ClientProfile() {
     mutationFn: (data) => api.entities.ServiceFiling.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serviceFilings', selectedClientId] });
+      // The backend auto-creates a linked Task alongside the filing — keep
+      // My Tasks/Team Dashboard fresh if they're already open elsewhere.
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setShowAddFiling(false);
       toast.success('Service added');
     },
@@ -132,6 +172,7 @@ export default function ClientProfile() {
     mutationFn: ({ id, data }) => api.entities.ServiceFiling.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serviceFilings', selectedClientId] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setEditingFiling(null);
       toast.success('Service updated');
     },
@@ -248,6 +289,11 @@ export default function ClientProfile() {
   const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
   const outstandingBalance = invoices.reduce((sum, inv) => sum + (inv.balance_due || 0), 0);
 
+  const filteredActivities = useMemo(() => {
+    if (activityTypeFilter === 'all') return activities;
+    return activities.filter((a) => a.activity_type === activityTypeFilter);
+  }, [activities, activityTypeFilter]);
+
   const filteredClients = useMemo(() => {
     if (!searchInput) return clients;
     const term = searchInput.toLowerCase();
@@ -335,6 +381,7 @@ export default function ClientProfile() {
           <TabsTrigger value="contact">Contact Info</TabsTrigger>
           <TabsTrigger value="business">Business Details</TabsTrigger>
           <TabsTrigger value="services">Services</TabsTrigger>
+          <TabsTrigger value="tasks">Tasks ({clientTasks.length})</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="payment-history">Payments</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
@@ -845,22 +892,98 @@ export default function ClientProfile() {
           )}
         </TabsContent>
 
+        {/* ── TASKS TAB ── */}
+        <TabsContent value="tasks">
+          <Card className="border-none shadow-md">
+            <CardHeader><CardTitle className="flex items-center gap-2"><ListChecks className="w-5 h-5" />Client Tasks</CardTitle></CardHeader>
+            <CardContent>
+              {clientTasks.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No tasks allocated for this client yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {clientTasks.map((task) => {
+                    const assignee = users.find((u) => u.email === task.assigned_to);
+                    const statusColor = task.status === 'Complete'
+                      ? 'bg-green-100 text-green-800'
+                      : task.status === 'In Progress'
+                      ? 'bg-blue-100 text-blue-800'
+                      : task.status === 'Blocked'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-gray-100 text-gray-800';
+                    return (
+                      <div
+                        key={task.id}
+                        onClick={() => setEditingClientTask(task)}
+                        className="p-4 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <h4 className="font-semibold text-navy">{task.title}</h4>
+                          <Badge className={statusColor} variant="outline">{task.status}</Badge>
+                        </div>
+                        <div className="flex items-center flex-wrap gap-2 mt-2 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><User className="w-3 h-3" />{assignee?.full_name || task.assigned_to || 'Unassigned'}</span>
+                          {task.due_date && (
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />Due: {new Date(task.due_date).toLocaleDateString()}</span>
+                          )}
+                          {task.extra?.client_emailed && (
+                            <span className="flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                              <Mail className="w-3 h-3" />Emailed
+                            </span>
+                          )}
+                          {task.extra?.overdue_reschedule_history?.length > 0 && (
+                            <span className="flex items-center gap-1 text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                              <RotateCcw className="w-3 h-3" />Auto-Rescheduled
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          {editingClientTask && (
+            <TaskFormModal
+              task={editingClientTask}
+              currentUser={actor}
+              onClose={() => setEditingClientTask(null)}
+            />
+          )}
+        </TabsContent>
+
         {/* ── DOCUMENTS TAB ── */}
         <TabsContent value="documents">
           <Card className="border-none shadow-md">
-            <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Documents</CardTitle>
+              <Button size="sm" onClick={() => setShowUploadDocument(true)} className="gap-2">
+                <Plus className="w-4 h-4" />Upload Document
+              </Button>
+            </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {documents.map(doc => (
-                  <div key={doc.id} className="p-4 border rounded-lg flex items-center justify-between">
-                    <div><h4 className="font-semibold text-navy">{doc.document_name}</h4><p className="text-sm text-muted-foreground">{doc.document_type}</p></div>
-                    <Badge>{doc.status}</Badge>
-                  </div>
-                ))}
-                {documents.length === 0 && <p className="text-center text-muted-foreground py-8">No documents yet</p>}
-              </div>
+              {documents.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No documents yet</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {documents.map((doc) => (
+                    <DocumentCard key={doc.id} document={doc} onDelete={handleDeleteDocument} />
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
+          <Dialog open={showUploadDocument} onOpenChange={setShowUploadDocument}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Upload Document</DialogTitle>
+              </DialogHeader>
+              <DocumentUploader
+                clientId={selectedClientId}
+                onSuccess={() => setShowUploadDocument(false)}
+              />
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* ── COMPLIANCE TAB ── */}
@@ -889,30 +1012,79 @@ export default function ClientProfile() {
         {/* ── ACTIVITY TAB ── */}
         <TabsContent value="activity">
           <Card className="border-none shadow-md">
-            <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="w-5 h-5" />Activity Timeline</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
+              <CardTitle className="flex items-center gap-2"><Activity className="w-5 h-5" />Activity Timeline</CardTitle>
+              <Select value={activityTypeFilter} onValueChange={setActivityTypeFilter}>
+                <SelectTrigger className="w-48 h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Activity</SelectItem>
+                  {Object.entries(ACTIVITY_TYPE_STYLES).map(([type, meta]) => (
+                    <SelectItem key={type} value={type}>{meta.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardHeader>
             <CardContent>
-              {activities.length === 0 ? (
+              {filteredActivities.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No activity recorded</p>
-              ) : activities.map((item, idx) => (
-                <div key={item.id} className="relative flex gap-4 pb-4">
-                  {idx !== activities.length - 1 && <div className="absolute left-3 top-8 bottom-0 w-0.5 bg-slate-200" />}
-                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-navy text-white text-xs font-semibold flex items-center justify-center">→</div>
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="font-semibold text-navy">{item.title}</h4>
-                        {item.from_stage && item.to_stage && (
-                          <p className="text-sm text-muted-foreground">{item.from_stage} → {item.to_stage}</p>
+              ) : filteredActivities.map((item, idx) => {
+                const typeMeta = ACTIVITY_TYPE_STYLES[item.activity_type] || { label: item.activity_type || 'Activity', color: 'bg-slate-100 text-slate-700' };
+                const linkedTask = item.extra?.task_id
+                  ? clientTasks.find((t) => t.id === item.extra.task_id)
+                  : null;
+                const assignee = item.extra?.assigned_to && users.find((u) => u.email === item.extra.assigned_to);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={linkedTask ? () => setEditingClientTask(linkedTask) : undefined}
+                    className={cn('relative flex gap-4 pb-4', linkedTask && 'cursor-pointer hover:bg-slate-50 rounded-lg -mx-2 px-2')}
+                  >
+                    {idx !== filteredActivities.length - 1 && <div className="absolute left-3 top-8 bottom-0 w-0.5 bg-slate-200" />}
+                    <div className="flex-shrink-0 w-7 h-7 rounded-full bg-navy text-white text-xs font-semibold flex items-center justify-center">→</div>
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-semibold text-navy">{item.title}</h4>
+                            <Badge variant="outline" className={cn('text-[10px]', typeMeta.color)}>{typeMeta.label}</Badge>
+                          </div>
+                          {item.from_stage && item.to_stage && (
+                            <p className="text-sm text-muted-foreground">{item.from_stage} → {item.to_stage}</p>
+                          )}
+                          {item.details && (
+                            <p className="text-sm text-slate-600 mt-1">{item.details}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        {item.performed_by && <span>By: {item.performed_by.split('@')[0]}</span>}
+                        {item.activity_date && <span>{new Date(item.activity_date).toLocaleString()}</span>}
+                        {(assignee || item.extra?.assigned_to) && (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            {assignee?.full_name || item.extra.assigned_to}
+                          </span>
+                        )}
+                        {item.extra?.due_date && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />Due: {new Date(item.extra.due_date).toLocaleDateString()}
+                          </span>
+                        )}
+                        {item.extra?.client_emailed === true && (
+                          <span className="flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                            <Mail className="w-3 h-3" />Emailed{item.extra.client_emailed_note ? `: ${item.extra.client_emailed_note}` : ''}
+                          </span>
+                        )}
+                        {item.extra?.client_emailed === false && (
+                          <span className="flex items-center gap-1 text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">
+                            <Mail className="w-3 h-3" />Not emailed
+                          </span>
                         )}
                       </div>
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      {item.performed_by && <span>By: {item.performed_by.split('@')[0]}</span>}
-                      {item.activity_date && <span>{new Date(item.activity_date).toLocaleString()}</span>}
-                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         </TabsContent>

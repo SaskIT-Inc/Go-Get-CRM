@@ -58,7 +58,7 @@ export default function Step4Services({ formData, updateFormData }) {
       {/* Monthly Package */}
       <div>
         <Label className="text-base font-semibold mb-3 block">Monthly Package (optional)</Label>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {monthlyPackages.map(pkg => {
             const selected = formData.monthly_package === pkg.name;
             return (

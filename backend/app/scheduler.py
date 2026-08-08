@@ -4,11 +4,13 @@ In-process recurring-job runner. The deployment is a single uvicorn worker
 scheduler is safe here: there's only ever one process that could run a job,
 so there's no risk of the same tick firing twice concurrently.
 
-Currently the only job is sending due RecurringEmailSequence follow-ups.
+Two jobs: sending due RecurringEmailSequence follow-ups, and rolling
+overdue Tasks forward to next month.
 """
 
+import calendar
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -17,7 +19,7 @@ from .adapters.gmail import send_via_gmail
 from .adapters.outlook_mail import send_via_outlook
 from .database import SessionLocal
 from .models import MODELS, ConnectedEmailAccount
-from .notify import notify_specific_staff, recipients_for_client
+from .notify import log_activity, notify_specific_staff, recipients_for_client
 
 logger = logging.getLogger(__name__)
 
@@ -96,3 +98,89 @@ async def send_due_recurring_emails() -> None:
                 # on the next tick.
                 await db.rollback()
                 logger.exception("Failed to send recurring follow-up for sequence %s", sequence.id)
+
+
+def _add_one_month(d: date) -> date:
+    """Advance a date by one calendar month, clamping the day to the target
+    month's length (e.g. Jan 31 -> Feb 28/29) — plain stdlib `calendar`, no
+    new dependency."""
+    month = d.month + 1
+    year = d.year + (1 if month > 12 else 0)
+    month = 1 if month > 12 else month
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+async def roll_over_overdue_tasks() -> None:
+    """Daily sweep: any Task still open (status != Complete) whose due_date
+    has passed gets automatically pushed one month forward. The original
+    due date is preserved in task.extra['overdue_reschedule_history'] (a
+    list, so repeated misses accumulate a visible trail) rather than lost,
+    and the assignee is notified — see [[project's My Tasks overdue-rollover
+    feature]] for why this exists: a task that's overdue in January
+    shouldn't just silently vanish into February with no record."""
+    Task = MODELS["Task"]
+    today_iso = date.today().isoformat()
+
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(Task).where(
+                Task.due_date.isnot(None),
+                Task.due_date < today_iso,
+                Task.status != "Complete",
+            )
+        )
+        overdue_tasks = result.scalars().all()
+
+        for task in overdue_tasks:
+            try:
+                old_due_iso = task.due_date
+                new_due_iso = _add_one_month(date.fromisoformat(old_due_iso)).isoformat()
+                now_iso = datetime.now(timezone.utc).isoformat()
+
+                extra = dict(task.extra or {})
+                history = list(extra.get("overdue_reschedule_history") or [])
+                history.append({"from": old_due_iso, "to": new_due_iso, "at": now_iso})
+                extra["overdue_reschedule_history"] = history
+                task.extra = extra
+                task.due_date = new_due_iso
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.exception("Failed to auto-reschedule overdue task %s", task.id)
+                continue
+
+            if task.client_id:
+                try:
+                    await log_activity(
+                        db=db,
+                        client_id=task.client_id,
+                        actor_email="system",
+                        activity_type="task_rescheduled",
+                        title=f"Task auto-rescheduled (was overdue): {task.title}",
+                        from_stage=old_due_iso,
+                        to_stage=new_due_iso,
+                        details=f"Due date automatically pushed from {old_due_iso} to {new_due_iso} after going overdue.",
+                        extra={
+                            "task_id": task.id,
+                            "assigned_to": task.assigned_to,
+                            "from_due_date": old_due_iso,
+                            "to_due_date": new_due_iso,
+                        },
+                    )
+                except Exception:
+                    logger.exception("Failed to log auto-reschedule activity for task %s", task.id)
+
+            if task.assigned_to:
+                try:
+                    await notify_specific_staff(
+                        db=db,
+                        actor_email="system",
+                        recipients=[task.assigned_to],
+                        notif_type="task_overdue_rescheduled",
+                        title="Overdue task rescheduled",
+                        body=f"\"{task.title}\" was overdue and has been automatically moved to {new_due_iso}.",
+                        link_url="/Tasks",
+                    )
+                except Exception:
+                    logger.exception("Failed to notify assignee of auto-reschedule for task %s", task.id)

@@ -32,6 +32,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./alembic.ini
+COPY backend/data_imports ./data_imports
 
 # Built React app, served by the SPA-fallback route in app/main.py.
 COPY --from=frontend-builder /frontend/dist ./app/static

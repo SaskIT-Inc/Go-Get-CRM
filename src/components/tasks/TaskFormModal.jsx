@@ -6,19 +6,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TaskTemplateSelector from './TaskTemplateSelector';
 import TaskCommentSection from '../comments/TaskCommentSection';
 import { toast } from 'sonner';
+import { MANAGERIAL_ROLES } from '@/lib/permissions';
 
 const SERVICE_FREQUENCY_OPTIONS = ['Weekly', 'Monthly', 'Quarterly', 'Half Yearly', 'Annually'];
 
 export default function TaskFormModal({ task, onClose, currentUser }) {
   const queryClient = useQueryClient();
-  // Bookkeeper is the individual-contributor tier — restricted to fields
-  // relevant to their own assignment rather than full task management.
-  const isUserRole = currentUser?.role === 'bookkeeper';
+  // Every individual-contributor role (bookkeeper, accountant, cpa,
+  // business_consultant, intern, other) is restricted to fields relevant
+  // to their own assignment rather than full task management — enforced
+  // for real server-side (generic.py's TASK_SELF_EDIT_FIELDS), this is
+  // just the matching UI.
+  const isUserRole = !MANAGERIAL_ROLES.includes(currentUser?.role);
+  const [clientEmailed, setClientEmailed] = useState(false);
+  const [clientEmailedNote, setClientEmailedNote] = useState('');
+  const wasAlreadyComplete = task?.status === 'Complete';
 
   const [formData, setFormData] = useState(task || {
     title: '',
@@ -71,6 +79,13 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
       queryClient.invalidateQueries(['tasks']);
       queryClient.invalidateQueries(['myTasks']);
       queryClient.invalidateQueries(['teamTasks']);
+      // Partial key match — refreshes every per-client Tasks tab
+      // (ClientProfile.jsx) regardless of which client this task belongs to.
+      queryClient.invalidateQueries(['clientTasks']);
+      // A "client emailed" completion creates a real Communication row
+      // server-side — refresh the client's Comms thread too, if open.
+      queryClient.invalidateQueries(['communications']);
+      queryClient.invalidateQueries(['activities']);
       onClose();
     },
     onError: (error) => {
@@ -78,10 +93,16 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
     }
   });
 
+  const isCompletingNow = task && !wasAlreadyComplete && formData.status === 'Complete';
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const dataToSave = { ...formData };
     dataToSave.estimated_hours = dataToSave.estimated_hours ? Number(dataToSave.estimated_hours) : null;
+    if (isCompletingNow && clientEmailed) {
+      dataToSave._client_emailed = true;
+      dataToSave._client_emailed_note = clientEmailedNote.trim() || undefined;
+    }
     saveMutation.mutate(dataToSave);
   };
 
@@ -190,6 +211,33 @@ export default function TaskFormModal({ task, onClose, currentUser }) {
                   )}
                 </div>
               </div>
+
+              {/* Optional "was the client emailed" prompt — shown only when
+                  marking a client-linked task Complete for the first time;
+                  skippable, never blocks saving. */}
+              {isCompletingNow && formData.client_id && (
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="client_emailed"
+                      checked={clientEmailed}
+                      onCheckedChange={(checked) => setClientEmailed(!!checked)}
+                    />
+                    <Label htmlFor="client_emailed" className="cursor-pointer">
+                      Client has been emailed about this
+                    </Label>
+                  </div>
+                  {clientEmailed && (
+                    <Textarea
+                      placeholder="Optional note about what was communicated..."
+                      value={clientEmailedNote}
+                      onChange={(e) => setClientEmailedNote(e.target.value)}
+                      rows={2}
+                      className="bg-white"
+                    />
+                  )}
+                </div>
+              )}
 
               {/* Admin/manager-only fields */}
               {!isUserRole && (

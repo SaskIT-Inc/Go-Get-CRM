@@ -47,7 +47,10 @@ const navigation = [
     icon: LayoutDashboard,
     children: [
       { name: 'My Tasks', page: 'Tasks', module: 'tasks' },
-      { name: 'Team Dashboard', page: 'TeamTaskDashboard', module: 'tasks' },
+      // Managerial-only: for an individual contributor this would just
+      // duplicate their own "My Tasks" view now that the backend scopes
+      // Task reads to assigned_to for non-managerial roles.
+      { name: 'Team Dashboard', page: 'TeamTaskDashboard', module: 'tasks', roles: ['director', 'admin', 'manager'] },
       { name: 'Calendar', page: 'CentralCalendar', module: 'calendar' },
       { name: 'Documents', page: 'Documents', module: 'documents' },
       { name: 'Email', page: 'Email', module: 'email' },

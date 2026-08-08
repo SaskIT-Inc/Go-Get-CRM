@@ -1,8 +1,18 @@
 """Bootstraps Go-Get's single-firm data: the Firm settings row, a director
 admin account, and starter reference data (vendors, document types, industry
-types, offices, team booking profiles, the service price list, and the
-monthly retainer packages). Every step is idempotent (skipped if rows already
-exist), so this is safe to run on every boot alongside app.migrate.
+types, offices, and team booking profiles). Every step is idempotent
+(skipped if rows already exist), so this is safe to run on every boot
+alongside app.migrate.
+
+The service price list and monthly retainer packages are deliberately NOT
+seeded here even though they used to be — they're versioned data that
+changes over time (new tiers, renamed packages, corrected fees), which is
+exactly what Alembic migrations are for (see
+alembic/versions/d4e5f6a7b8c9_seed_additional_services.py and later). Having
+both this script and migrations independently seed the same two tables
+caused a real bug: whichever ran first silently "won," so a later migration
+correcting a price could be silently no-op'd by this script's older,
+inaccurate defaults still being idempotency-guarded as "already present."
 
 Run manually with: python -m app.seed
 """
@@ -23,8 +33,6 @@ DocumentType = MODELS["DocumentType"]
 IndustryType = MODELS["IndustryType"]
 Office = MODELS["Office"]
 TeamMemberBookingProfile = MODELS["TeamMemberBookingProfile"]
-Service = MODELS["Service"]
-Package = MODELS["Package"]
 
 DEFAULT_VENDORS = [
     {
@@ -137,148 +145,6 @@ DEFAULT_BOOKING_PROFILES = [
     },
 ]
 
-# Go-Get's real service price list.
-DEFAULT_SERVICES = [
-    {
-        "service_category": "Incorporation",
-        "service_name": "Business Incorporation (Federal & Provincial)",
-        "base_price": 999,
-        "notes": "$999 + govt fees — Articles of Incorporation, BN registration",
-        "is_active": True,
-    },
-    {
-        "service_category": "Incorporation",
-        "service_name": "Business Incorporation (Extra Provincial)",
-        "base_price": 499,
-        "notes": "$499 + govt fees — Provincial name reservation & registration",
-        "is_active": True,
-    },
-    {
-        "service_category": "CRA & Compliance",
-        "service_name": "CRA Account Setup",
-        "base_price": 99,
-        "notes": "$99 — GST/PST & Payroll accounts under BN",
-        "is_active": True,
-    },
-    {
-        "service_category": "Bookkeeping",
-        "service_name": "Bookkeeping Software Setup",
-        "base_price": 449,
-        "notes": "$449 — QBO/Xero setup, chart of accounts, tax codes",
-        "is_active": True,
-    },
-    {
-        "service_category": "Bookkeeping",
-        "service_name": "Startup Bookkeeping Training",
-        "base_price": 149,
-        "notes": "$149 — 1-2 hrs of training in-person or Zoom",
-        "is_active": True,
-    },
-    {
-        "service_category": "Advisory",
-        "service_name": "CPA Tax Consultation",
-        "base_price": 350,
-        "notes": "$350/hr — Tax planning, structure, or compliance advice",
-        "is_active": True,
-    },
-    {
-        "service_category": "CRA & Compliance",
-        "service_name": "CRA Audit Support",
-        "base_price": None,
-        "notes": "Custom Quote — Payroll/GST audits; CRA correspondence",
-        "is_active": True,
-    },
-    {
-        "service_category": "Tax",
-        "service_name": "Personal Tax Return (T1)",
-        "base_price": 45,
-        "notes": (
-            "Starting at $45 — Newcomer & New Client: $45; Existing Client: $45; "
-            "Self-Employed: starts at $100; Couple/family: 25% off (conditions apply)"
-        ),
-        "is_active": True,
-    },
-    {
-        "service_category": "Tax",
-        "service_name": "Business Tax Return (T2)",
-        "base_price": 650,
-        "notes": "Starting at $650 (conditions apply)",
-        "is_active": True,
-    },
-    {
-        "service_category": "Notary",
-        "service_name": "Notary",
-        "base_price": 40,
-        "notes": "Starting at $40 (conditions apply)",
-        "is_active": True,
-    },
-    {
-        "service_category": "Government Benefits",
-        "service_name": "Govt. Benefits & Application",
-        "base_price": 75,
-        "notes": (
-            "Starting at $75 — Employment Insurance (EI) or Worker Compensation Benefit (WCB), "
-            "Maternity Benefit Application (EI), GST/Federal Benefits, Low-income Tax Credit Application, "
-            "Home Renovation Tax Credit Application, Graduate Retention Program, Child Benefit Application, "
-            "Canada Passport Application/Renew, Bangladesh No Visa Required Application, Bangladesh Passport "
-            "Application, Canada Carbon Rebate (CCR), Canada Caregiver Credit, Child Disability Benefit, "
-            "Canada Workers Benefit (CWB), Disability Tax Credit (DTC), Health Card Application, Leisure "
-            "Access program, Discounted Bus Service Application."
-        ),
-        "is_active": True,
-    },
-]
-
-# Monthly retainer bundle tiers.
-DEFAULT_PACKAGES = [
-    {
-        "name": "Essential",
-        "price": "$299/month",
-        "billing_frequency": "Monthly",
-        "description": (
-            "Bookkeeping: up to 150 transactions/month, quarterly bookkeeping, QBO Basic subscription.\n"
-            "Tax: Corporate Tax (T2) & filing, 2 Personal Tax Returns included, GST/PST remittance, "
-            "up to 10 T4/T4A/T5 slips.\n"
-            "Payroll: up to 6 employees (no direct deposit).\n"
-            "Support & Advisory: Email/Call/Text support, quarterly financial summary.\n"
-            "Alerts & Insights: no financial alerts, no gov't benefit updates, no industry insights."
-        ),
-        "is_active": True,
-    },
-    {
-        "name": "Standard",
-        "price": "$599/month",
-        "billing_frequency": "Monthly",
-        "description": (
-            "Bookkeeping: up to 350 transactions/month, monthly bookkeeping + reconciliation, "
-            "QBO Standard subscription.\n"
-            "Tax: Corporate Tax (T2) & filing, 3 Personal Tax Returns included, GST/PST remittance, "
-            "up to 20 T4/T4A/T5 slips.\n"
-            "Payroll: up to 20 employees (no direct deposit).\n"
-            "Support & Advisory: Phone support + 1 hr consult/month, quarterly financial review meetings.\n"
-            "Alerts & Insights: financial alerts, gov't benefit updates, basic industry tips."
-        ),
-        "is_active": True,
-    },
-    {
-        "name": "Premium",
-        "price": "$1,499/month",
-        "billing_frequency": "Monthly",
-        "description": (
-            "Bookkeeping: up to 1,500 transactions/month, weekly bookkeeping + reconciliation, "
-            "QBO subscription as required.\n"
-            "Tax: Corporate Tax (T2) & filing, 5 Personal Tax Returns included, GST/PST remittance, "
-            "up to 100 T4/T4A/T5 slips.\n"
-            "Payroll: up to 100 employees (no direct deposit).\n"
-            "Support & Advisory: Priority support, unlimited access, CFO-level strategic planning meetings.\n"
-            "Alerts & Insights: real-time financial alerts, early access to gov't benefit updates, "
-            "tailored industry insights & benchmarks."
-        ),
-        "is_active": True,
-    },
-]
-
-
 async def _seed_rows(db, model, rows: list[dict]) -> None:
     count = (await db.execute(select(func.count()).select_from(model))).scalar_one()
     if count == 0:
@@ -292,8 +158,6 @@ async def seed_firm_defaults(db) -> None:
     await _seed_rows(db, IndustryType, DEFAULT_INDUSTRY_TYPES)
     await _seed_rows(db, Office, DEFAULT_OFFICES)
     await _seed_rows(db, TeamMemberBookingProfile, DEFAULT_BOOKING_PROFILES)
-    await _seed_rows(db, Service, DEFAULT_SERVICES)
-    await _seed_rows(db, Package, DEFAULT_PACKAGES)
     await db.commit()
 
 

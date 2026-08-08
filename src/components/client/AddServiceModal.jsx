@@ -8,12 +8,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { X, Plus, Save } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { addDays, format } from 'date-fns';
 import { api } from '@/api/apiClient';
 
-const FREQUENCIES = ['One-time', 'Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'Semi-Monthly', 'Bi-Weekly', 'Weekly'];
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const FREQUENCIES = ['Weekly', 'Bi-Weekly', 'Semi-Monthly', 'Monthly', 'Quarterly', 'Semi-Annual', 'Annual', 'One-time'];
 const STATUSES = ['Not Started', 'Documents Pending', 'In Progress', 'Review', 'Filed', 'Completed'];
-const SHOW_SCHEDULE = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'Semi-Monthly', 'Bi-Weekly', 'Weekly'];
 
 const DEFAULT_FORM = (year) => ({
   service_id: '',
@@ -23,21 +22,11 @@ const DEFAULT_FORM = (year) => ({
   status: 'Not Started',
   assigned_to: '',
   filing_frequency: 'Annual',
-  schedule_month: '',
-  schedule_day: '',
   tax_cycle_start: '',
+  tax_cycle_end: '',
   due_date: '',
   notes: ''
 });
-
-const mapFrequency = (freq) => {
-  const map = {
-    'Monthly': 'Monthly', 'Weekly': 'Weekly', 'Annual': 'Annual',
-    'Quarterly': 'Quarterly', 'One-time': 'One-time', 'Ad-hoc': 'One-time',
-    'Semi-Monthly': 'Semi-Monthly', 'Bi-Weekly': 'Bi-Weekly', 'Semi-Annual': 'Semi-Annual'
-  };
-  return map[freq] || 'Annual';
-};
 
 export default function AddServiceModal({ open, onClose, onSave, services = [], isSaving, initialData }) {
   const currentYear = new Date().getFullYear();
@@ -60,9 +49,8 @@ export default function AddServiceModal({ open, onClose, onSave, services = [], 
           status: initialData.status || 'Not Started',
           assigned_to: initialData.assigned_to || '',
           filing_frequency: initialData.filing_frequency || 'Annual',
-          schedule_month: initialData.schedule_month || '',
-          schedule_day: initialData.schedule_day != null ? String(initialData.schedule_day) : '',
           tax_cycle_start: initialData.tax_cycle_start || '',
+          tax_cycle_end: initialData.tax_cycle_end || '',
           due_date: initialData.due_date || '',
           notes: initialData.notes || ''
         });
@@ -85,20 +73,24 @@ export default function AddServiceModal({ open, onClose, onSave, services = [], 
       ...prev,
       service_id: serviceId,
       service_name: svc?.service_name || '',
-      filing_frequency: mapFrequency(svc?.service_frequency) || prev.filing_frequency,
-      fee: svc?.base_price ? String(svc.base_price) : prev.fee,
     }));
   };
 
-  const showScheduleDetails = SHOW_SCHEDULE.includes(form.filing_frequency);
-  const showMonth = ['Annual', 'Semi-Annual'].includes(form.filing_frequency);
+  const handlePeriodEndDateChange = (value) => {
+    setForm((prev) => ({
+      ...prev,
+      tax_cycle_end: value,
+      // Due Date tracks Period End Date + 15 days, but stays a plain
+      // editable field afterward so this default can be overridden.
+      due_date: value ? format(addDays(new Date(value), 15), 'yyyy-MM-dd') : prev.due_date,
+    }));
+  };
 
   const handleSubmit = () => {
     if (!form.service_name.trim()) return;
     const data = {
       ...form,
       fee: form.fee !== '' ? parseFloat(form.fee) : undefined,
-      schedule_day: form.schedule_day ? parseInt(form.schedule_day) : undefined
     };
     onSave(data);
   };
@@ -233,49 +225,23 @@ export default function AddServiceModal({ open, onClose, onSave, services = [], 
             </div>
           </div>
 
-          {/* Schedule Details */}
-          {showScheduleDetails && (
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Schedule Details</p>
-              <div className={cn('grid gap-3', showMonth ? 'grid-cols-2' : 'grid-cols-1 max-w-[180px]')}>
-                {showMonth && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium text-slate-600">Month</Label>
-                    <Select value={form.schedule_month || '__none__'} onValueChange={(v) => setVal('schedule_month')(v === '__none__' ? '' : v)}>
-                      <SelectTrigger className="h-9 bg-white border-slate-200">
-                        <SelectValue placeholder="Select month" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Select month</SelectItem>
-                        {MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-slate-600">Day</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="31"
-                    value={form.schedule_day}
-                    onChange={set('schedule_day')}
-                    placeholder="e.g. 30"
-                    className="h-9 bg-white border-slate-200"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Start Date + Due Date */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Start Date + Period End Date + Due Date */}
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Start Date</Label>
               <Input
                 type="date"
                 value={form.tax_cycle_start}
                 onChange={set('tax_cycle_start')}
+                className="h-10 border-slate-200"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Period End Date</Label>
+              <Input
+                type="date"
+                value={form.tax_cycle_end}
+                onChange={(e) => handlePeriodEndDateChange(e.target.value)}
                 className="h-10 border-slate-200"
               />
             </div>
@@ -287,6 +253,7 @@ export default function AddServiceModal({ open, onClose, onSave, services = [], 
                 onChange={set('due_date')}
                 className="h-10 border-slate-200"
               />
+              <p className="text-xs text-muted-foreground">Defaults to 15 days after Period End Date — editable.</p>
             </div>
           </div>
 

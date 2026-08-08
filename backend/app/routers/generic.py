@@ -10,6 +10,7 @@ read/write scoping).
 """
 
 import datetime
+import logging
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -27,6 +28,7 @@ from ..modules import (
     CLIENT_CREATE_ENTITIES,
     CLIENT_READ_ENTITIES,
     ENTITY_MODULE,
+    MANAGERIAL_ROLES,
     MODULES,
     STAFF_ROLES,
     has_permission,
@@ -43,6 +45,7 @@ from ..notify import (
 from ..serialization import apply_update, build_create, serialize
 
 router = APIRouter(prefix="/api", tags=["entities"])
+logger = logging.getLogger(__name__)
 
 
 def _get_model(entity: str) -> type:
@@ -86,6 +89,8 @@ def _authorize(entity: str, model: type, user, *, action: str):
         return _conversation_scope_filter(entity, model, user)
     if entity == "Communication":
         return _communication_scope_filter(model, user)
+    if entity == "Task":
+        return _task_scope_filter(model, user)
     return None
 
 
@@ -123,6 +128,30 @@ def _communication_scope_filter(model: type, user):
     return model.client_id.in_(
         select(Client.id).where(func.lower(Client.assigned_to) == user.email)
     )
+
+
+def _task_scope_filter(model: type, user):
+    """Individual contributors (every STAFF_ROLE not in MANAGERIAL_ROLES)
+    only ever see/address their own allocated tasks — a managerial role
+    (director/admin/manager) can see and manage everyone's. Applies to both
+    'view' and 'edit' since _authorize's return value is used for both the
+    list query filter and _get_scoped's by-id lookup, so a non-managerial
+    user addressing someone else's task by ID gets a 404, not just an empty
+    list."""
+    if user.role in MANAGERIAL_ROLES:
+        return None
+    return model.assigned_to == user.email
+
+
+# A non-managerial user completing/updating their own task may only change
+# its status (and the completion timestamp that naturally comes with it) —
+# every other field (title, assigned_to, due_date, etc.) is management's
+# call. Enforced here rather than in serialization.py's PROTECTED_FIELDS
+# since it's role-dependent, not a blanket restriction. The two `_`-prefixed
+# keys are the optional "was the client emailed" marker TaskFormModal sends
+# alongside a Complete status change — transient, never persisted as-is
+# (see update_entity, which pops them before calling apply_update).
+TASK_SELF_EDIT_FIELDS = {"status", "completed_date", "_client_emailed", "_client_emailed_note"}
 
 
 def _authorize_client(entity: str, model: type, user, *, action: str):
@@ -275,7 +304,7 @@ async def _auto_generate_invoice(db: AsyncSession, user, filing) -> None:
             link_url="/Invoices",
         )
     except Exception:
-        pass
+        logger.exception("Failed to notify firm of auto-generated invoice for filing %s", filing.id)
     try:
         await log_activity(
             db=db,
@@ -285,7 +314,73 @@ async def _auto_generate_invoice(db: AsyncSession, user, filing) -> None:
             title=f"Invoice auto-generated: ${total}",
         )
     except Exception:
-        pass
+        logger.exception("Failed to log activity for auto-generated invoice on filing %s", filing.id)
+
+
+def _filing_task_title(filing, client) -> str:
+    client_name = client.legal_name if client else None
+    return f"{filing.service_name} — {client_name}" if client_name else filing.service_name
+
+
+# Maps a ServiceFiling's (richer) status vocabulary onto a Task's own, so a
+# task auto-created from a filing keeps reflecting that filing's progress.
+_FILING_TO_TASK_STATUS = {
+    "Not Started": "Not Started",
+    "Documents Pending": "In Progress",
+    "In Progress": "In Progress",
+    "Review": "In Progress",
+    "Filed": "Complete",
+    "Completed": "Complete",
+}
+
+
+async def _create_task_for_filing(db: AsyncSession, user, filing) -> None:
+    """Server-side side effect of adding a service to a client (the "Add
+    Service" form on ClientProfile.jsx's Services tab) — bypasses the normal
+    create_entity path the same way _auto_generate_invoice does, so My
+    Tasks/Team Dashboard reflect a client's filing work without anyone
+    having to hand-create a matching task."""
+    Task = MODELS["Task"]
+    Client = MODELS["Client"]
+    client = await db.get(Client, filing.client_id) if filing.client_id else None
+    db.add(
+        Task(
+            title=_filing_task_title(filing, client),
+            description=filing.notes,
+            status="Not Started",
+            priority="Medium",
+            assigned_to=filing.assigned_to,
+            client_id=filing.client_id,
+            service_filing_id=filing.id,
+            due_date=filing.due_date,
+            created_by=user.email,
+            extra={},
+        )
+    )
+    await db.commit()
+
+
+async def _sync_tasks_for_filing(db: AsyncSession, filing) -> None:
+    """Keeps any Task(s) auto-created from a filing (see
+    _create_task_for_filing) in sync when the filing itself is edited —
+    due date, assignee, and a status mapped from the filing's own progress.
+    One-directional: a task's own status never writes back to the filing."""
+    Task = MODELS["Task"]
+    Client = MODELS["Client"]
+    result = await db.execute(select(Task).where(Task.service_filing_id == filing.id))
+    tasks = result.scalars().all()
+    if not tasks:
+        return
+    client = await db.get(Client, filing.client_id) if filing.client_id else None
+    title = _filing_task_title(filing, client)
+    mapped_status = _FILING_TO_TASK_STATUS.get(filing.status)
+    for task in tasks:
+        task.title = title
+        task.due_date = filing.due_date
+        task.assigned_to = filing.assigned_to
+        if mapped_status:
+            task.status = mapped_status
+    await db.commit()
 
 
 async def _get_scoped(db: AsyncSession, model: type, item_id: str, extra_filter):
@@ -373,13 +468,35 @@ NOTIFY_ON_CREATE = {
 
 # Client audit-trail logging fired on create, one entry per entity whose
 # creation is worth a row on that client's Activity tab. Each lambda maps
-# the freshly created row to (client_id, activity_type, title) — skipped
-# entirely if client_id is falsy (Task/Document's client_id is optional).
+# the freshly created row to (client_id, activity_type, title, extra) —
+# skipped entirely if client_id is falsy (Task/Document's client_id is
+# optional). `extra` carries structured fields the Activity tab can render
+# as detail chips (assignee, due date, etc.) beyond the plain title string.
 ACTIVITY_ON_CREATE = {
-    "Task": lambda obj: (obj.client_id, "task_created", f"Task created: {obj.title}"),
-    "ServiceFiling": lambda obj: (obj.client_id, "filing_created", f"Service added: {obj.service_name}"),
-    "Document": lambda obj: (obj.client_id, "document_uploaded", f"Document uploaded: {obj.document_name}"),
-    "Signature": lambda obj: (obj.client_id, "signature_completed", f"Signed: {obj.document_type}"),
+    "Task": lambda obj: (
+        obj.client_id,
+        "task_created",
+        f"Task created: {obj.title}",
+        {"task_id": obj.id, "assigned_to": obj.assigned_to, "due_date": obj.due_date},
+    ),
+    "ServiceFiling": lambda obj: (
+        obj.client_id,
+        "filing_created",
+        f"Service added: {obj.service_name}",
+        {"service_filing_id": obj.id, "assigned_to": obj.assigned_to, "due_date": obj.due_date},
+    ),
+    "Document": lambda obj: (
+        obj.client_id,
+        "document_uploaded",
+        f"Document uploaded: {obj.document_name}",
+        {"document_id": obj.id, "document_type": obj.document_type, "uploaded_by": obj.uploaded_by},
+    ),
+    "Signature": lambda obj: (
+        obj.client_id,
+        "signature_completed",
+        f"Signed: {obj.document_type}",
+        {"document_type": obj.document_type},
+    ),
 }
 
 
@@ -465,12 +582,12 @@ async def create_entity(
                 link_url="/Documents",
             )
         except Exception:
-            pass
+            logger.exception("Failed to notify firm of client %s activity, id=%s", entity, obj.id)
         if entity == "Document":
             try:
                 await notify_client_document_uploaded(db, obj)
             except Exception:
-                pass
+                logger.exception("Failed to notify staff of client document upload %s", obj.id)
     elif is_client and entity == "Communication":
         client_for_comm = await db.get(MODELS["Client"], obj.client_id)
         try:
@@ -486,16 +603,16 @@ async def create_entity(
                     link_url=f"/ClientProfile?client={obj.client_id}",
                 )
         except Exception:
-            pass
+            logger.exception("Failed to notify staff of client portal message on Communication %s", obj.id)
         try:
             await notify_client_message(db, obj)
         except Exception:
-            pass
+            logger.exception("Failed to send client-message notification for Communication %s", obj.id)
         try:
             recipients = await recipients_for_client(db, client_for_comm) if client_for_comm else []
             await ws_manager.push(recipients, {"type": "communication", "client_id": obj.client_id})
         except Exception:
-            pass
+            logger.exception("Failed to push websocket update for Communication %s", obj.id)
     elif not is_client and entity == "Communication":
         try:
             client_for_comm = await db.get(MODELS["Client"], obj.client_id)
@@ -505,7 +622,7 @@ async def create_entity(
                     {"type": "communication", "client_id": obj.client_id},
                 )
         except Exception:
-            pass
+            logger.exception("Failed to push websocket update for staff Communication %s", obj.id)
     elif entity == "RecurringEmailSequence":
         # Fires on the very first send (the frontend sends that email, then
         # creates this row) — subsequent automated sends are notified from
@@ -524,12 +641,12 @@ async def create_entity(
                     link_url=f"/ClientProfile?client={obj.client_id}",
                 )
         except Exception:
-            pass
+            logger.exception("Failed to notify staff of recurring email sent for sequence %s", obj.id)
     elif entity == "Conversation":
         try:
             await ws_manager.push(obj.participant_emails or [], {"type": "conversation"})
         except Exception:
-            pass
+            logger.exception("Failed to push websocket update for Conversation %s", obj.id)
     elif entity == "Message":
         try:
             conversation = await db.get(MODELS["Conversation"], obj.conversation_id)
@@ -539,7 +656,7 @@ async def create_entity(
                     {"type": "message", "conversation_id": obj.conversation_id},
                 )
         except Exception:
-            pass
+            logger.exception("Failed to push websocket update for Message %s", obj.id)
     elif entity in NOTIFY_ON_CREATE:
         # Same best-effort guarantee: never let a notification hiccup fail
         # the actual create it's reporting on.
@@ -555,12 +672,12 @@ async def create_entity(
                 link_url=link_url,
             )
         except Exception:
-            pass
+            logger.exception("Failed to notify firm of new %s, id=%s", entity, obj.id)
         if entity == "Lead":
             try:
                 await notify_lead_captured(obj)
             except Exception:
-                pass
+                logger.exception("Failed to send lead-captured notification for Lead %s", obj.id)
 
     if entity == "Task" and obj.assigned_to and obj.assigned_to != user.email:
         # Personal, targeted alert to the assignee — separate from the
@@ -578,10 +695,10 @@ async def create_entity(
                 link_url="/Tasks",
             )
         except Exception:
-            pass
+            logger.exception("Failed to notify assignee %s of new task %s", obj.assigned_to, obj.id)
 
     if entity in ACTIVITY_ON_CREATE:
-        client_id, activity_type, title = ACTIVITY_ON_CREATE[entity](obj)
+        client_id, activity_type, title, activity_extra = ACTIVITY_ON_CREATE[entity](obj)
         if client_id:
             try:
                 await log_activity(
@@ -590,9 +707,16 @@ async def create_entity(
                     actor_email=user.email,
                     activity_type=activity_type,
                     title=title,
+                    extra=activity_extra,
                 )
             except Exception:
-                pass
+                logger.exception("Failed to log activity '%s' for client %s", activity_type, client_id)
+
+    if entity == "ServiceFiling":
+        try:
+            await _create_task_for_filing(db, user, obj)
+        except Exception:
+            logger.exception("Failed to auto-create task for new ServiceFiling %s", obj.id)
 
     return serialize(entity, obj)
 
@@ -634,9 +758,20 @@ async def update_entity(
     obj = await _get_scoped(db, model, item_id, extra_filter)
     if obj is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if entity == "Task" and user.role not in MANAGERIAL_ROLES:
+        # Individual contributors editing their own task (the only kind
+        # _task_scope_filter would have let them reach at all) may only
+        # change its status — every other field is management's call.
+        body = {key: value for key, value in body.items() if key in TASK_SELF_EDIT_FIELDS}
+    # Optional "was the client emailed about this" marker (see
+    # TASK_SELF_EDIT_FIELDS comment) — extracted before apply_update ever
+    # sees it, since these aren't real Task columns and shouldn't land in
+    # `extra` under their raw transient key names.
+    client_emailed_flag = body.pop("_client_emailed", None) if entity == "Task" else None
+    client_emailed_note = body.pop("_client_emailed_note", None) if entity == "Task" else None
     # Snapshot before apply_update mutates obj in place — it has no diff/
     # return value, so this is the only chance to detect a transition.
-    was_completed = entity == "Task" and getattr(obj, "status", None) == "Completed"
+    was_completed = entity == "Task" and getattr(obj, "status", None) == "Complete"
     old_assigned_to = getattr(obj, "assigned_to", None) if entity == "Task" else None
     old_filing_status = getattr(obj, "status", None) if entity == "ServiceFiling" else None
     apply_update(entity, obj, body)
@@ -654,7 +789,7 @@ async def update_entity(
         )
     await db.refresh(obj)
 
-    if entity == "Task" and not was_completed and obj.status == "Completed":
+    if entity == "Task" and not was_completed and obj.status == "Complete":
         # Best-effort, same guarantee as the create-time notifications above.
         try:
             await notify_firm(
@@ -667,7 +802,12 @@ async def update_entity(
                 link_url="/Tasks",
             )
         except Exception:
-            pass
+            logger.exception("Failed to notify firm of task completion for task %s", obj.id)
+        emailed_details = None
+        if client_emailed_flag is not None:
+            emailed_details = (
+                "Client was emailed about this." if client_emailed_flag else "Client was not emailed about this."
+            )
         if obj.client_id:
             try:
                 await log_activity(
@@ -676,9 +816,51 @@ async def update_entity(
                     actor_email=user.email,
                     activity_type="task_completed",
                     title=f"Task completed: {obj.title}",
+                    details=emailed_details,
+                    extra={
+                        "task_id": obj.id,
+                        "assigned_to": obj.assigned_to,
+                        "due_date": obj.due_date,
+                        "client_emailed": bool(client_emailed_flag),
+                        "client_emailed_note": client_emailed_note,
+                    },
                 )
             except Exception:
-                pass
+                logger.exception("Failed to log task-completed activity for task %s", obj.id)
+        if client_emailed_flag:
+            # Best-effort: a real Communication row so this shows up in the
+            # client's own Comms thread, plus a quick-badge stamp on the
+            # task itself so task lists don't need to cross-reference
+            # Communication just to show an "Emailed" indicator.
+            try:
+                now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                if obj.client_id:
+                    Communication = MODELS["Communication"]
+                    db.add(
+                        Communication(
+                            client_id=obj.client_id,
+                            communication_type="Email",
+                            subject=f"Re: {obj.title}",
+                            notes=client_emailed_note or f"Client emailed regarding completed task: {obj.title}",
+                            communication_date=now_iso,
+                            author_email=user.email,
+                            sender_type="staff",
+                            created_by=user.email,
+                            extra={},
+                        )
+                    )
+                extra = dict(obj.extra or {})
+                extra["client_emailed"] = True
+                extra["client_emailed_at"] = now_iso
+                obj.extra = extra
+                await db.commit()
+                # Re-sync obj after this second commit — SQLAlchemy expires
+                # its attributes on commit by default, and the final
+                # serialize(entity, obj) below would otherwise try to lazily
+                # reload them outside of an awaited context and 500.
+                await db.refresh(obj)
+            except Exception:
+                logger.exception("Failed to record client-emailed status for completed task %s", obj.id)
 
     if entity == "Task" and obj.assigned_to and obj.assigned_to != old_assigned_to and obj.assigned_to != user.email:
         try:
@@ -692,7 +874,7 @@ async def update_entity(
                 link_url="/Tasks",
             )
         except Exception:
-            pass
+            logger.exception("Failed to notify new assignee %s of reassigned task %s", obj.assigned_to, obj.id)
 
     if entity == "Client":
         # A single "profile updated" row per save is enough for the Activity
@@ -706,7 +888,7 @@ async def update_entity(
                 title="Client profile updated",
             )
         except Exception:
-            pass
+            logger.exception("Failed to log client-updated activity for client %s", obj.id)
 
     if entity == "ServiceFiling" and old_filing_status != obj.status:
         try:
@@ -718,14 +900,21 @@ async def update_entity(
                 title=f"Service status changed: {obj.service_name}",
                 from_stage=old_filing_status,
                 to_stage=obj.status,
+                extra={"service_filing_id": obj.id, "assigned_to": obj.assigned_to},
             )
         except Exception:
-            pass
+            logger.exception("Failed to log filing-status-changed activity for filing %s", obj.id)
         if old_filing_status != "Completed" and obj.status == "Completed":
             try:
                 await _auto_generate_invoice(db, user, obj)
             except Exception:
-                pass
+                logger.exception("Failed to auto-generate invoice for completed filing %s", obj.id)
+
+    if entity == "ServiceFiling":
+        try:
+            await _sync_tasks_for_filing(db, obj)
+        except Exception:
+            logger.exception("Failed to sync linked task(s) for updated ServiceFiling %s", obj.id)
 
     return serialize(entity, obj)
 

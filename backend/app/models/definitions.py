@@ -106,7 +106,7 @@ ENTITY_DEFINITIONS = {
     "Service": {
         "table": "services",
         "fields": {
-            "service_category": (S, {"nullable": False}),
+            "service_category": S,
             "service_name": (S, {"nullable": False}),
             "service_type": S,
             "cra_form": S,
@@ -613,7 +613,7 @@ ENTITY_DEFINITIONS = {
 # one existed; left empty for entities that were always schemaless).
 REQUIRED_FIELDS = {
     "Client": ["client_type", "legal_name", "primary_email"],
-    "Service": ["service_category", "service_name"],
+    "Service": ["service_name"],
     "ServiceFiling": ["client_id", "service_name"],
     "User": ["role"],
     "Message": ["conversation_id"],

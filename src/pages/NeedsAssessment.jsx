@@ -139,7 +139,7 @@ export default function NeedsAssessment() {
 
             <div className="space-y-3">
               <Label>Monthly Package Interest (optional)</Label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {MONTHLY_PACKAGES.map(pkg => {
                   const selected = assessmentData.monthly_package === pkg.name;
                   return (

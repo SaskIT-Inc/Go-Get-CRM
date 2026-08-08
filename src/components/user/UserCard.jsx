@@ -5,13 +5,18 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Edit, Check, X, Ban, RotateCcw, Trash2 } from 'lucide-react';
 import { INVITABLE } from '@/lib/permissions';
-import PermissionMatrixEditor from './PermissionMatrixEditor';
+import PermissionsPanel from './PermissionsPanel';
 
 const ROLE_COLORS = {
   director: 'bg-purple-100 text-purple-800',
   admin: 'bg-red-100 text-red-800',
   manager: 'bg-indigo-100 text-indigo-800',
   bookkeeper: 'bg-orange-100 text-orange-800',
+  accountant: 'bg-teal-100 text-teal-800',
+  business_consultant: 'bg-cyan-100 text-cyan-800',
+  cpa: 'bg-emerald-100 text-emerald-800',
+  intern: 'bg-yellow-100 text-yellow-800',
+  other: 'bg-gray-100 text-gray-800',
   client: 'bg-slate-100 text-slate-800',
 };
 
@@ -19,9 +24,11 @@ const ROLE_LABEL = (role) => role?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.
 
 export default function UserCard({ u, currentUser, onSave, onDelete }) {
   const [editing, setEditing] = useState(false);
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false);
   const [form, setForm] = useState({
     full_name: u.full_name || '',
     role: u.role || 'client',
+    job_title: u.job_title || '',
     permissions: u.permissions || {},
   });
 
@@ -39,7 +46,12 @@ export default function UserCard({ u, currentUser, onSave, onDelete }) {
   };
 
   const handleCancel = () => {
-    setForm({ full_name: u.full_name || '', role: u.role || 'client', permissions: u.permissions || {} });
+    setForm({
+      full_name: u.full_name || '',
+      role: u.role || 'client',
+      job_title: u.job_title || '',
+      permissions: u.permissions || {},
+    });
     setEditing(false);
   };
 
@@ -67,12 +79,38 @@ export default function UserCard({ u, currentUser, onSave, onDelete }) {
             </SelectContent>
           </Select>
         </div>
+        {form.role === 'other' && (
+          <div>
+            <label className="text-xs font-semibold text-slate-500 mb-1 block">Custom Role Title</label>
+            <Input
+              placeholder="e.g. Payroll Specialist"
+              value={form.job_title}
+              onChange={(e) => setForm({ ...form, job_title: e.target.value })}
+            />
+          </div>
+        )}
         {form.role !== 'client' && (
           <div>
             <label className="text-xs font-semibold text-slate-500 mb-1 block">Module Access</label>
-            <PermissionMatrixEditor
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() => setShowPermissionsPanel(true)}
+              className="gap-2 w-full"
+            >
+              Configure Permissions
+              <span className="text-xs text-muted-foreground">
+                ({Object.values(form.permissions).reduce((sum, actions) => sum + actions.length, 0)} granted)
+              </span>
+            </Button>
+            <PermissionsPanel
+              open={showPermissionsPanel}
+              onClose={() => setShowPermissionsPanel(false)}
+              role={form.role}
+              name={form.full_name || u.email}
               value={form.permissions}
-              onChange={(permissions) => setForm({ ...form, permissions })}
+              onSave={(permissions) => setForm({ ...form, permissions })}
             />
           </div>
         )}

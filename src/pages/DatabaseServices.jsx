@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { addDays, format } from 'date-fns';
 import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,28 +8,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Briefcase, DollarSign, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const EMPTY_SERVICE = {
-  service_category: '',
-  service_name: '',
-  service_type: '',
-  cra_form: '',
-  cra_deadline: '',
-  period_end_date: '',
-  due_date: '',
-  billing_frequency: '',
-  workflow_template: '',
-  base_price: '',
-  estimated_hours: '',
-  notes: '',
-  is_active: true,
-  requires_cpa: false,
-};
+const EMPTY_SERVICE = { service_name: '', base_price: '' };
 
 const EMPTY_PACKAGE = { name: '', price: '', billing_frequency: 'Monthly', description: '' };
 
@@ -48,11 +31,6 @@ export default function DatabaseServices() {
     queryFn: () => api.entities.Service.list(),
   });
 
-  const { data: craForms = [] } = useQuery({
-    queryKey: ['cra-forms'],
-    queryFn: () => api.craForms.list(),
-  });
-
   const { data: packages = [] } = useQuery({
     queryKey: ['packages'],
     queryFn: () => api.entities.Package.list(),
@@ -60,11 +38,7 @@ export default function DatabaseServices() {
 
   const saveMutation = useMutation({
     mutationFn: (data) => {
-      const payload = {
-        ...data,
-        base_price: data.base_price === '' ? null : parseFloat(data.base_price),
-        estimated_hours: data.estimated_hours === '' ? null : parseFloat(data.estimated_hours),
-      };
+      const payload = { ...data, base_price: data.base_price === '' ? null : parseFloat(data.base_price) };
       return editingId ? api.entities.Service.update(editingId, payload) : api.entities.Service.create(payload);
     },
     onSuccess: () => {
@@ -111,12 +85,7 @@ export default function DatabaseServices() {
 
   const openEditForm = (service) => {
     setEditingId(service.id);
-    setForm({
-      ...EMPTY_SERVICE,
-      ...service,
-      base_price: service.base_price ?? '',
-      estimated_hours: service.estimated_hours ?? '',
-    });
+    setForm({ ...EMPTY_SERVICE, ...service, base_price: service.base_price ?? '' });
     setShowForm(true);
   };
 
@@ -144,33 +113,12 @@ export default function DatabaseServices() {
     setNewPackage(EMPTY_PACKAGE);
   };
 
-  const handleCraFormChange = (code) => {
-    const matchedForm = craForms.find((f) => f.code === code);
-    setForm((prev) => ({
-      ...prev,
-      cra_form: code,
-      // Prefill the deadline from the reference table, but never clobber a
-      // deadline the firm already customized for this service.
-      cra_deadline: prev.cra_deadline || matchedForm?.deadline || prev.cra_deadline,
-    }));
-  };
-
-  const handlePeriodEndDateChange = (value) => {
-    setForm((prev) => ({
-      ...prev,
-      period_end_date: value,
-      // Due Date tracks Period End Date + 15 days, but stays a plain editable
-      // input afterward so this default can be overridden before saving.
-      due_date: value ? format(addDays(new Date(value), 15), 'yyyy-MM-dd') : prev.due_date,
-    }));
-  };
-
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1800px] mx-auto">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-bold text-navy mb-2">Service Catalog</h1>
-          <p className="text-muted-foreground">Master service catalog — pricing, CRA forms, and filing cadence</p>
+          <p className="text-muted-foreground">Master list of services and packages — filing details are set per client</p>
         </div>
       </div>
 
@@ -280,138 +228,24 @@ export default function DatabaseServices() {
                 <DialogTitle>{editingId ? 'Edit Service' : 'Add Service'}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="service_name">Service Name *</Label>
-                    <Input
-                      id="service_name"
-                      value={form.service_name}
-                      onChange={(e) => setForm({ ...form, service_name: e.target.value })}
-                      placeholder="Corporate Tax Return"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="service_category">Category *</Label>
-                    <Input
-                      id="service_category"
-                      value={form.service_category}
-                      onChange={(e) => setForm({ ...form, service_category: e.target.value })}
-                      placeholder="Corporate Tax"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>CRA Form</Label>
-                    <Select value={form.cra_form || undefined} onValueChange={handleCraFormChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select CRA form..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {craForms.map((cf) => (
-                          <SelectItem key={cf.id} value={cf.code}>
-                            {cf.code} — {cf.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cra_deadline">Filing Deadline</Label>
-                    <Input
-                      id="cra_deadline"
-                      value={form.cra_deadline}
-                      onChange={(e) => setForm({ ...form, cra_deadline: e.target.value })}
-                      placeholder="April 30"
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="billing_frequency">Billing Frequency</Label>
+                  <Label htmlFor="service_name">Service Name *</Label>
                   <Input
-                    id="billing_frequency"
-                    value={form.billing_frequency}
-                    onChange={(e) => setForm({ ...form, billing_frequency: e.target.value })}
-                    placeholder="One-time"
+                    id="service_name"
+                    value={form.service_name}
+                    onChange={(e) => setForm({ ...form, service_name: e.target.value })}
+                    placeholder="Corporate Tax Return"
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="period_end_date">Period End Date</Label>
-                    <Input
-                      id="period_end_date"
-                      type="date"
-                      value={form.period_end_date}
-                      onChange={(e) => handlePeriodEndDateChange(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="due_date">Due Date</Label>
-                    <Input
-                      id="due_date"
-                      type="date"
-                      value={form.due_date}
-                      onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">Defaults to 15 days after Period End Date — editable.</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="base_price">Base Price ($)</Label>
-                    <Input
-                      id="base_price"
-                      type="number"
-                      step="0.01"
-                      value={form.base_price}
-                      onChange={(e) => setForm({ ...form, base_price: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="estimated_hours">Estimated Hours</Label>
-                    <Input
-                      id="estimated_hours"
-                      type="number"
-                      step="0.25"
-                      value={form.estimated_hours}
-                      onChange={(e) => setForm({ ...form, estimated_hours: e.target.value })}
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium text-navy text-sm">Active</p>
-                    <p className="text-xs text-muted-foreground">Inactive services are hidden from selectors</p>
-                  </div>
-                  <Switch
-                    checked={form.is_active}
-                    onCheckedChange={(checked) => setForm({ ...form, is_active: checked })}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium text-navy text-sm">Requires CPA</p>
-                    <p className="text-xs text-muted-foreground">Flags this service as needing a CPA-designated preparer</p>
-                  </div>
-                  <Switch
-                    checked={form.requires_cpa}
-                    onCheckedChange={(checked) => setForm({ ...form, requires_cpa: checked })}
+                  <Label htmlFor="base_price">Fees ($)</Label>
+                  <Input
+                    id="base_price"
+                    type="number"
+                    step="0.01"
+                    value={form.base_price}
+                    onChange={(e) => setForm({ ...form, base_price: e.target.value })}
+                    placeholder="0.00"
                   />
                 </div>
               </div>
@@ -419,7 +253,7 @@ export default function DatabaseServices() {
                 <Button variant="outline" onClick={closeForm}>Cancel</Button>
                 <Button
                   onClick={() => saveMutation.mutate(form)}
-                  disabled={!form.service_name || !form.service_category || saveMutation.isPending}
+                  disabled={!form.service_name || saveMutation.isPending}
                 >
                   {saveMutation.isPending ? 'Saving…' : editingId ? 'Save Changes' : 'Add Service'}
                 </Button>

@@ -84,6 +84,26 @@ const ROLE_PERMISSIONS = [
     description: 'Access to specific modules as granted in their permission matrix at invite time — typically filings, documents, and billing-related work. Cannot invite other users.',
   },
   {
+    name: 'Accountant',
+    description: 'Access to specific modules as granted in their permission matrix at invite time — typically billing, filings, and compliance work. Cannot invite other users.',
+  },
+  {
+    name: 'Business Consultant',
+    description: 'Access to specific modules as granted in their permission matrix at invite time — typically clients, leads, and calendar. Cannot invite other users.',
+  },
+  {
+    name: 'CPA',
+    description: 'Access to specific modules as granted in their permission matrix at invite time — typically filings, compliance, and billing work. Cannot invite other users.',
+  },
+  {
+    name: 'Intern',
+    description: 'View-only access to specific modules as granted in their permission matrix at invite time — typically tasks, calendar, and documents. Cannot invite other users.',
+  },
+  {
+    name: 'Other',
+    description: "A custom role with a firm-chosen title, for anything the standard roles don't fit. Access is fully hand-configured in their permission matrix at invite time. Cannot invite other users.",
+  },
+  {
     name: 'Client',
     description: "Read-only client portal access to their own filings, tasks, and documents. Can upload documents and comment, but can't see other clients' data or firm settings.",
   },

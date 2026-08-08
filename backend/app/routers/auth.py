@@ -2,7 +2,7 @@ import datetime
 import hashlib
 import secrets
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,8 +88,31 @@ def _check_resend_rate_limit(email: str) -> bool:
     return True
 
 
+# In-process per-IP rate limit on login attempts — the only unauthenticated,
+# brute-forceable endpoint in the app. Same bucket pattern as the resend
+# limiter above and routers/public.py's chatbot/webhook limiters.
+_LOGIN_RATE_LIMIT_WINDOW_SECONDS = 300
+_LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 10
+_login_rate_limit_buckets: dict[str, list[float]] = {}
+
+
+def _check_login_rate_limit(client_ip: str) -> None:
+    now = time.monotonic()
+    bucket = _login_rate_limit_buckets.setdefault(client_ip, [])
+    cutoff = now - _LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    while bucket and bucket[0] < cutoff:
+        bucket.pop(0)
+    if len(bucket) >= _LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many login attempts — please wait a few minutes and try again.",
+        )
+    bucket.append(now)
+
+
 @router.post("/login")
-async def login(body: dict = Body(...), db: AsyncSession = Depends(get_db)):
+async def login(request: Request, body: dict = Body(...), db: AsyncSession = Depends(get_db)):
+    _check_login_rate_limit(request.client.host if request.client else "unknown")
     email = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
     result = await db.execute(select(User).where(User.email == email))

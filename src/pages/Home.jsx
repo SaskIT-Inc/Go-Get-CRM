@@ -5,6 +5,7 @@ import MarketingLayout from '@/components/marketing/MarketingLayout';
 import LogoCarousel from '@/components/marketing/LogoCarousel';
 import AnimatedNumber from '@/components/marketing/AnimatedNumber';
 import Reveal, { RevealGroup, revealItem } from '@/components/marketing/Reveal';
+import { MONTHLY_PACKAGES } from '@/lib/serviceCatalog';
 
 const STATS = [
   { label: 'Clients', value: '47', color: 'text-blue-400' },
@@ -37,56 +38,6 @@ const STEPS = [
   { step: '1', title: 'Book a Consultation', desc: "Tell us about your business — incorporation, bookkeeping, tax, or ongoing support. We'll recommend the right service or package for you." },
   { step: '2', title: 'We Set You Up', desc: 'Incorporation, CRA account setup, bookkeeping software — we handle the setup so you can focus on running your business.' },
   { step: '3', title: 'We Keep You Compliant', desc: 'Ongoing bookkeeping, tax filing, and CRA compliance — handled accurately and on time, all year round.' },
-];
-
-const PLANS = [
-  {
-    name: 'Essential', price: '$299', ideal: 'Startups & solo operators', highlight: false,
-    features: [
-      'Up to 150 transactions/month',
-      'Quarterly bookkeeping',
-      'QBO Basic subscription',
-      'Corporate Tax (T2) & filing',
-      '2 Personal Tax Returns included',
-      'GST/PST remittance',
-      'Up to 10 T4/T4A/T5 slips',
-      'Up to 6 payroll employees',
-      'Email / Call / Text support',
-    ],
-    missing: ['Financial alerts', "Gov't benefit updates", 'Industry insights'],
-  },
-  {
-    name: 'Standard', price: '$599', ideal: 'Growing businesses', highlight: true,
-    features: [
-      'Up to 350 transactions/month',
-      'Monthly bookkeeping + reconciliation',
-      'QBO Standard subscription',
-      'Corporate Tax (T2) & filing',
-      '3 Personal Tax Returns included',
-      'GST/PST remittance',
-      'Up to 20 T4/T4A/T5 slips',
-      'Up to 20 payroll employees',
-      'Phone support + 1hr consult/month',
-      'Financial alerts & gov\'t benefit updates',
-    ],
-    missing: ['Tailored industry benchmarks'],
-  },
-  {
-    name: 'Premium', price: '$1,499', ideal: 'Established businesses', highlight: false,
-    features: [
-      'Up to 1,500 transactions/month',
-      'Weekly bookkeeping + reconciliation',
-      'QBO subscription as required',
-      'Corporate Tax (T2) & filing',
-      '5 Personal Tax Returns included',
-      'GST/PST remittance',
-      'Up to 100 T4/T4A/T5 slips',
-      'Up to 100 payroll employees',
-      'Priority support, unlimited access',
-      'Real-time alerts & tailored industry insights',
-    ],
-    missing: [],
-  },
 ];
 
 function CheckIcon({ className }) {
@@ -423,8 +374,8 @@ export default function Home() {
             <h2 className="text-4xl font-extrabold text-slate-900 mb-4">Simple, transparent pricing</h2>
             <p className="text-xl text-slate-500 mb-12">Monthly bookkeeping, tax, and advisory bundles built for growing Canadian businesses.</p>
           </Reveal>
-          <RevealGroup className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto" stagger={0.1}>
-            {PLANS.map((plan) => (
+          <RevealGroup className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto" stagger={0.1}>
+            {MONTHLY_PACKAGES.map((plan) => (
               <motion.div
                 key={plan.name}
                 variants={revealItem}
@@ -447,7 +398,7 @@ export default function Home() {
                 )}
                 <p className={`text-xs font-extrabold uppercase tracking-widest mb-1 ${plan.highlight ? 'text-blue-300' : 'text-slate-400'}`}>{plan.name}</p>
                 <div className="flex items-end gap-1 mb-1">
-                  <span className="text-4xl font-extrabold">{plan.price}</span>
+                  <span className="text-4xl font-extrabold">{plan.price.replace('/month', '')}</span>
                   <span className={`text-sm mb-1.5 ${plan.highlight ? 'text-white/60' : 'text-slate-400'}`}>/mo CAD</span>
                 </div>
                 <p className={`text-xs mb-4 ${plan.highlight ? 'text-white/50' : 'text-slate-400'}`}>Best for: {plan.ideal}</p>

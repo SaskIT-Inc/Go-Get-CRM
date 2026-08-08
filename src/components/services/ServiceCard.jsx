@@ -42,9 +42,11 @@ export default function ServiceCard({ service, onSelect, selected }) {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
-            <div className={`inline-block px-2 py-1 rounded-md mb-2 ${categoryColors[service.service_category]} text-white text-xs font-semibold`}>
-              {service.service_category}
-            </div>
+            {service.service_category && (
+              <div className={`inline-block px-2 py-1 rounded-md mb-2 ${categoryColors[service.service_category] || 'bg-gray-500'} text-white text-xs font-semibold`}>
+                {service.service_category}
+              </div>
+            )}
             <CardTitle className="text-lg text-navy leading-tight">
               {service.service_name}
             </CardTitle>

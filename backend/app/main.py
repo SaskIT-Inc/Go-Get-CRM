@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -7,7 +8,21 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .scheduler import send_due_recurring_emails
+from .scheduler import roll_over_overdue_tasks, send_due_recurring_emails
+
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+# Refuse to boot in production with the placeholder secret still in place —
+# every JWT would be signed with a value that's public in this repo's source.
+# Dev/local environments (the default app_env) are unaffected.
+if settings.app_env == "production" and settings.jwt_secret == "change-me-to-a-long-random-string":
+    raise RuntimeError(
+        "APP_ENV=production but JWT_SECRET is still the default placeholder. "
+        "Set a real, random JWT_SECRET before deploying to production."
+    )
 from .routers import (
     auth,
     company,
@@ -66,6 +81,7 @@ scheduler = AsyncIOScheduler()
 @app.on_event("startup")
 async def start_scheduler():
     scheduler.add_job(send_due_recurring_emails, "interval", hours=1, id="recurring_email_sequences")
+    scheduler.add_job(roll_over_overdue_tasks, "interval", hours=24, id="overdue_task_rollover")
     scheduler.start()
 
 

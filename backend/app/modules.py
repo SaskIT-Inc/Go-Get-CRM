@@ -16,14 +16,24 @@ from .models import ENTITY_DEFINITIONS
 
 ACTIONS = ("view", "create", "edit", "delete")
 
-STAFF_ROLES = {"director", "admin", "manager", "bookkeeper"}
+STAFF_ROLES = {
+    "director", "admin", "manager", "bookkeeper",
+    "accountant", "business_consultant", "cpa", "intern", "other",
+}
+
+# Roles that can see and oversee every team member's tasks (not just their
+# own) — director/admin already have full-firm reach via other modules;
+# manager joins them here specifically for task oversight. Every other
+# STAFF_ROLE is an individual contributor, scoped to their own assignments
+# (see generic.py's _task_scope_filter).
+MANAGERIAL_ROLES = {"director", "admin", "manager"}
 
 # Who each role is allowed to invite. Director can invite anyone but itself;
-# Admin can invite anyone but director/admin; manager/bookkeeper invite no one
+# Admin can invite anyone but director/admin; every other role invites no one
 # (absent from this dict -> INVITABLE.get(role, set()) is empty).
 INVITABLE = {
-    "director": {"admin", "manager", "bookkeeper", "client"},
-    "admin": {"manager", "bookkeeper", "client"},
+    "director": {"admin", "manager", "bookkeeper", "accountant", "business_consultant", "cpa", "intern", "other", "client"},
+    "admin": {"manager", "bookkeeper", "accountant", "business_consultant", "cpa", "intern", "other", "client"},
 }
 
 # key -> {label, entities, director_implied}. director_implied=True means a

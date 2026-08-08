@@ -15,6 +15,7 @@ OneDrive, which doesn't fit the per-person model this app uses instead.
 """
 
 import datetime
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -31,6 +32,7 @@ from ..models import MODELS, ConnectedOneDriveAccount
 from ..reports import render_monthly_performance_report, render_monthly_task_report
 
 router = APIRouter(prefix="/api/functions", tags=["functions"])
+logger = logging.getLogger(__name__)
 
 ServiceFiling = MODELS["ServiceFiling"]
 Invoice = MODELS["Invoice"]
@@ -144,7 +146,8 @@ async def _predict_filing_delays(db: AsyncSession) -> dict:
             for entry in predictions:
                 entry["recommendations"] = recs_by_id.get(entry["filing_id"], [])
         except Exception:
-            pass  # numeric predictions above are still returned either way
+            # numeric predictions above are still returned either way
+            logger.exception("Failed to enrich filing-delay predictions with LLM recommendations")
 
     high_risk_count = sum(1 for p in predictions if p["risk_level"] in ("critical", "high"))
     return {
@@ -323,7 +326,9 @@ async def invoke_function(
                 await upload_to_onedrive(account, db, folder, doc.document_name or "document", content)
                 uploaded += 1
             except Exception:
-                continue  # one bad document shouldn't sink the whole sync
+                # one bad document shouldn't sink the whole sync
+                logger.exception("Failed to sync document %s to OneDrive", doc.id)
+                continue
         return {"data": {"documentsUploaded": uploaded}}
 
     if name == "uploadSignedDocumentToOneDrive":

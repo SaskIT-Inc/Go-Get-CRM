@@ -1,4 +1,6 @@
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/api/apiClient';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,7 +22,11 @@ const statusColors = {
   'Archived': 'bg-gray-500/10 text-gray-700 border-gray-500/20'
 };
 
-const typeIcons = {
+// Category is the Document Types master list's real, admin-editable
+// taxonomy (src/pages/DocumentTypes.jsx). This substring map only covers
+// legacy/imported document_type strings that don't match any current
+// master-list entry.
+const categoryIcons = {
   'Tax Slip': '📄',
   'Receipt': '🧾',
   'Bank Statement': '🏦',
@@ -32,11 +38,22 @@ const typeIcons = {
 };
 
 export default function DocumentCard({ document: doc, clientName, onView, onDelete }) {
+  const { data: documentTypes = [] } = useQuery({
+    queryKey: ['documentTypes'],
+    queryFn: () => api.entities.DocumentType.list(),
+  });
+  const categoryByName = documentTypes.reduce((map, dt) => {
+    map[dt.name] = dt.category || 'Other';
+    return map;
+  }, {});
+
   const getTypeIcon = (docType) => {
-    for (const [key, icon] of Object.entries(typeIcons)) {
+    const category = categoryByName[docType];
+    if (category && categoryIcons[category]) return categoryIcons[category];
+    for (const [key, icon] of Object.entries(categoryIcons)) {
       if (docType.includes(key)) return icon;
     }
-    return typeIcons.Other;
+    return categoryIcons.Other;
   };
 
   const formatFileSize = (bytes) => {
